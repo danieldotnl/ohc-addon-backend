@@ -1,6 +1,5 @@
 """Home Assistant Service."""
 
-import json
 import logging
 from typing import Any
 
@@ -20,11 +19,11 @@ class HomeAssistantBaseError(Exception):
 class HomeAssistantService:
     """Service to interact with Home Assistant."""
 
-    def __init__(self, server_url: str, access_token: str) -> None:
+    def __init__(self, server_url: str, access_token: str, session: aiohttp.ClientSession | None = None) -> None:
         """Initialize the service."""
         self.server_url = server_url
         self._base_url = f"{server_url}/api"
-        self.session = aiohttp.ClientSession(
+        self.session = session or aiohttp.ClientSession(
             headers={"Authorization": f"Bearer {access_token}"})
 
         logger.info(
@@ -60,19 +59,15 @@ class HomeAssistantService:
             raise HomeAssistantBaseError(
                 message=msg, error_type="request_failed") from e
 
-    def json_to_yaml(self, json_content: str) -> str:
+    def json_to_yaml(self, content: dict) -> str:
         """Convert JSON content to YAML."""
         try:
-            # Parse the JSON string to Python dict
-            content_dict = json.loads(json_content)
             # Convert the dict to YAML string
-            yaml_content = yaml.dump(
-                content_dict, default_flow_style=False, sort_keys=False)
+            return yaml.dump(
+                content, default_flow_style=False, sort_keys=False)
         except Exception:
             logger.exception("Error converting json to YAML!")
             raise
-
-        return yaml_content
 
     async def get_automation_content(self, automation_id: str) -> str:
         """Get the content of an automation from Home Assistant."""

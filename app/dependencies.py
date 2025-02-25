@@ -4,12 +4,13 @@ import logging
 import os
 
 from app.services.github import GitHubClient
-from app.services.home_assistant_service import HomeAssistantService
+from app.services.ha_service import HomeAssistantService
 from app.services.ohc_state import OHCState
 from app.services.settings import Settings
 from app.services.sync_manager import SyncManager
 
 logger = logging.getLogger(__name__)
+
 
 class DependencyManager:
     """Dependency Manager."""
@@ -45,7 +46,8 @@ class DependencyManager:
             api_url = self.get_settings().gh_config.api_url
             client_id = self.get_settings().gh_config.client_id
             token = self.get_settings().gh_token
-            self._github_client = GitHubClient(api_url=api_url, client_id=client_id, access_token=token)
+            self._github_client = GitHubClient(
+                api_url=api_url, client_id=client_id, access_token=token)
         return self._github_client
 
     def get_settings(self) -> Settings:
@@ -65,12 +67,25 @@ class DependencyManager:
         """Get sync manager."""
         if not self._sync_manager:
             config = self.get_settings().sync_config
-            self._sync_manager = SyncManager(self.get_ha_service(), self.get_github_client(), config)
+            self._sync_manager = SyncManager(
+                self.get_ha_service(), self.get_github_client(), config)
         return self._sync_manager
 
     def get_ohc_state(self) -> OHCState:
         """Get state manager."""
         return self.get_sync_manager().get_ohc_state()
+
+    async def clear_github_token(self) -> None:
+        """Clear GitHub token in settings when authentication fails."""
+        if self._settings and self._settings.gh_token:
+            logger.warning(
+                "GitHub authentication failed. Clearing invalid token.")
+            self._settings.gh_config.access_token = None
+            await self._settings.save()
+
+            # Also update the token in the existing client if it exists
+            if self._github_client:
+                self._github_client.rest_api.set_auth_token("")
 
 
 data_folder = os.getenv("HA_DATA_FOLDER", "./data")

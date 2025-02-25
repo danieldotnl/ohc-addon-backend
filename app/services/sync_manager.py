@@ -8,7 +8,7 @@ from typing import cast
 
 from app.models.ha_entity import Automation, HAEntity, HAEntityType
 from app.services.github import GitHubClient
-from app.services.home_assistant_service import HomeAssistantService
+from app.services.ha_service import HomeAssistantService
 from app.services.ohc_state import OHCState
 from app.services.settings import SyncManagerConfig
 

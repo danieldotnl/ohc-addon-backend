@@ -63,7 +63,7 @@ class GitHubBaseAPI:
             # Extract resource info from URL
             path_parts = url.split("/")
             resource_type = path_parts[-2] if len(
-                path_parts) >= 2 else "resource"
+                path_parts) >= 2 else "resource"  # noqa: PLR2004
             resource_id = path_parts[-1] if path_parts else "unknown"
             raise GitHubNotFoundError(resource_type, resource_id)
 
@@ -74,6 +74,13 @@ class GitHubBaseAPI:
 
         if response.status == status.HTTP_401_UNAUTHORIZED:
             # Auth error
+            from app.dependencies import deps
+            # Clear the invalid token
+            try:
+                await deps.clear_github_token()
+            except Exception:
+                logger.exception("Failed to clear GitHub token!")
+
             raise GitHubAuthError(error_data.get(
                 "message", "Authentication failed"))
 
