@@ -8,7 +8,7 @@ from typing import cast
 
 from app.models.ha_entity import Automation, HAEntity, HAEntityType
 from app.services.github import GitHubClient
-from app.services.github.errors import GitHubAPIError, GitHubAuthError
+from app.services.github.errors import GitHubAPIError, GitHubAuthError, GitHubNotFoundError
 from app.services.ha_service import HomeAssistantError, HomeAssistantService
 from app.services.ohc_state import OHCState
 from app.services.settings import SyncManagerConfig
@@ -56,13 +56,16 @@ class SyncManager:
                     self.sync_config.interval)
         try:
             # First load state from GitHub if available
-            state_json = await self.github.content.get_file_contents(self.sync_config.state_file)
-            if state_json:
-                logger.info("Loading existing state from GitHub")
-                self._ohc_state = OHCState.from_json(state_json)
-            else:
+            try:
+                state_json = await self.github.content.get_file_contents(self.sync_config.state_file)
+                if state_json:
+                    logger.info("Loading existing state from GitHub")
+                    self._ohc_state = OHCState.from_json(state_json)
+            except GitHubNotFoundError:
+                # This is expected the first time when a repo is created.
                 logger.info(
-                    "No existing state found, starting with empty state")
+                    "State file not found on GitHub, starting with empty state")
+                # Already using empty state from initialization
 
             self.status = SyncStatus.RUNNING
             self._task = asyncio.create_task(self._async_loop())
@@ -184,7 +187,7 @@ class SyncManager:
                     logger.info(
                         "Successfully committed changes to GitHub: %s", commit_result.sha)
                     # Update the original state only on successful commit
-                    self.ohc_state = state_copy
+                    self._ohc_state = state_copy
                 else:
                     logger.info(
                         "No changes to commit (GitHub reported files unchanged)")
