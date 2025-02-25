@@ -12,8 +12,42 @@ from app.models.ha_entity import Automation, HAEntity, Script
 logger = logging.getLogger(__name__)
 
 
-class HomeAssistantBaseError(Exception):
+class HomeAssistantError(Exception):
     """Base exception for Home Assistant API errors."""
+
+    def __init__(self, message: str, status_code: int = None, error_type: str = "ha_error") -> None:
+        """Initialize the error."""
+        self.message = message
+        self.status_code = status_code
+        self.error_type = error_type
+        super().__init__(message)
+
+
+class HomeAssistantAuthError(HomeAssistantError):
+    """Authentication error with Home Assistant."""
+
+    def __init__(self, message: str = "Authentication with Home Assistant failed") -> None:
+        """Initialize the error."""
+        super().__init__(message, status_code=401, error_type="ha_auth_error")
+
+
+class HomeAssistantConnectionError(HomeAssistantError):
+    """Connection error with Home Assistant."""
+
+    def __init__(self, message: str = "Could not connect to Home Assistant") -> None:
+        """Initialize the error."""
+        super().__init__(message, status_code=503, error_type="ha_connection_error")
+
+
+class HomeAssistantResourceNotFoundError(HomeAssistantError):
+    """Resource not found in Home Assistant."""
+
+    def __init__(self, resource_type: str, resource_id: str) -> None:
+        """Initialize the error."""
+        message = f"{resource_type} not found: {resource_id}"
+        super().__init__(message, status_code=404, error_type="ha_not_found")
+        self.resource_type = resource_type
+        self.resource_id = resource_id
 
 
 class HomeAssistantService:
@@ -35,29 +69,69 @@ class HomeAssistantService:
             await self.session.close()
             self.session = None
 
-    async def make_request(self, method: str, url: str, **kwargs: dict) -> Any:  # noqa: ANN401
-        """Make an HTTP request and return the JSON response."""
+    async def make_request(self, method: str, url: str, **kwargs: dict) -> Any:
+        """Make an HTTP request and return the JSON response with improved error handling."""
         logger.debug("Making %s request to: %s", method, url)
+
+        # Extract resource info from URL for better error messages
+        path_parts = url.split("/")
+        resource_type = path_parts[-2] if len(path_parts) >= 2 else "resource"
+        resource_id = path_parts[-1] if path_parts else "unknown"
+
         try:
             async with self.session.request(method, url, **kwargs) as response:
                 if response.status == status.HTTP_404_NOT_FOUND:
-                    # Return None for 404 instead of raising an exception
-                    logger.debug("Resource not found: %s", url)
+                    logger.debug("%s not found: %s",
+                                 resource_type, resource_id)
                     return None
 
-                result = await response.json()
+                if response.status == status.HTTP_401_UNAUTHORIZED:
+                    error_text = await response.text()
+                    logger.error(
+                        "Home Assistant authentication error: %s", error_text)
+                    msg = f"Authentication failed: {error_text}"
+                    raise HomeAssistantAuthError(  # noqa: TRY301
+                        msg)
+
+                try:
+                    result = await response.json()
+                except aiohttp.ContentTypeError as err:
+                    content = await response.text()
+                    if not response.ok:
+                        logger.exception("Invalid JSON response from HA API: %s %s",
+                                         response.status, content[:200])
+                        msg = f"Invalid JSON response from Home Assistant (Status: {response.status})"
+                        raise HomeAssistantError(
+                            msg,
+                            status_code=response.status
+                        ) from err
+                    return content  # Return text content if not JSON
 
                 if not response.ok:
+                    error_msg = result.get("message", str(result)) if isinstance(
+                        result, dict) else str(result)
                     logger.error("Home Assistant API error: %s %s",
-                                 response.status, result)
-                    response.raise_for_status()
+                                 response.status, error_msg)
+                    msg = f"Home Assistant API error: {error_msg}"
+                    raise HomeAssistantError(  # noqa: TRY301
+                        msg,
+                        status_code=response.status
+                    )
 
                 return result
+        except aiohttp.ClientConnectorError as e:
+            logger.error("Cannot connect to Home Assistant: %s", str(e))
+            raise HomeAssistantConnectionError(
+                f"Cannot connect to Home Assistant: {e!s}")
         except aiohttp.ClientError as e:
-            logger.debug("Request failed")
-            msg = f"Request failed: {e!s}"
-            raise HomeAssistantBaseError(
-                message=msg, error_type="request_failed") from e
+            logger.error("Home Assistant request failed: %s", str(e))
+            raise HomeAssistantError(
+                f"Request failed: {e!s}", error_type="request_failed")
+        except HomeAssistantError:
+            raise
+        except Exception as e:
+            logger.exception("Unexpected error in Home Assistant request")
+            raise HomeAssistantError(f"Unexpected error: {e!s}")
 
     def json_to_yaml(self, content: dict) -> str:
         """Convert JSON content to YAML."""

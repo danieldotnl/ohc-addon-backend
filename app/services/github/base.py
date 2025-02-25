@@ -57,44 +57,75 @@ class GitHubBaseAPI:
         return error_data
 
     async def _handle_error_response(self, response: aiohttp.ClientResponse, error_data: dict, url: str) -> None:
-        """Handle different error responses based on status code."""
-        # Handle specific error cases
-        if response.status == status.HTTP_404_NOT_FOUND:
-            # Extract resource info from URL
-            path_parts = url.split("/")
-            resource_type = path_parts[-2] if len(
-                path_parts) >= 2 else "resource"  # noqa: PLR2004
-            resource_id = path_parts[-1] if path_parts else "unknown"
-            raise GitHubNotFoundError(resource_type, resource_id)
+        """Handle different error responses based on status code with improved context."""
+        import sys
+        from datetime import datetime
 
-        if response.status == status.HTTP_403_FORBIDDEN and "X-RateLimit-Remaining" in response.headers:
-            # Rate limit error
-            reset_time = int(response.headers.get("X-RateLimit-Reset", 0))
-            raise GitHubRateLimitError(reset_time)
+        # Capture request context
+        method = response.method
+        status_code = response.status
+        path_parts = url.split("/")
+        resource_type = path_parts[-2] if len(path_parts) >= 2 else "resource"
+        resource_id = path_parts[-1] if path_parts else "unknown"
 
-        if response.status == status.HTTP_401_UNAUTHORIZED:
-            # Auth error
-            from app.dependencies import deps
-            # Clear the invalid token
-            try:
-                await deps.clear_github_token()
-            except Exception:
-                logger.exception("Failed to clear GitHub token!")
+        try:
+            if status_code == status.HTTP_404_NOT_FOUND:
+                raise GitHubNotFoundError(resource_type, resource_id)
 
-            raise GitHubAuthError(error_data.get(
-                "message", "Authentication failed"))
+            if status_code == status.HTTP_403_FORBIDDEN and "X-RateLimit-Remaining" in response.headers:
+                reset_time = int(response.headers.get("X-RateLimit-Reset", 0))
+                reset_time_str = datetime.fromtimestamp(
+                    reset_time).strftime("%Y-%m-%d %H:%M:%S UTC")
+                logger.warning(
+                    "GitHub rate limit exceeded. Resets at %s (%d)",
+                    reset_time_str, reset_time
+                )
+                raise GitHubRateLimitError(reset_time)
 
-        if response.status == status.HTTP_422_UNPROCESSABLE_ENTITY:
-            # Validation error
-            raise GitHubValidationError(
-                error_data.get("message", "Validation failed"),
-                status_code=422,
+            if status_code == status.HTTP_401_UNAUTHORIZED:
+                # Auth error handling with token cleanup
+                from app.dependencies import deps
+                try:
+                    logger.warning(
+                        "GitHub authentication failed. Clearing invalid token.")
+                    await deps.clear_github_token()
+                except Exception as e:
+                    logger.exception(
+                        "Failed to clear GitHub token: %s", str(e))
+
+                error_msg = error_data.get("message", "Authentication failed")
+                raise GitHubAuthError(error_msg)
+
+            if status_code == status.HTTP_422_UNPROCESSABLE_ENTITY:
+                errors = error_data.get("errors", [])
+                error_details = "; ".join(
+                    f"{e.get('field')}: {e.get('message')}" for e in errors) if errors else "Validation failed"
+                raise GitHubValidationError(
+                    error_data.get("message", "Validation failed") +
+                    f" - {error_details}",
+                    status_code=422,
+                    response_data=error_data
+                )
+
+            # Better generic error message
+            context = f"{method} {url}"
+            error_message = error_data.get(
+                "message", f"GitHub API error ({context}): Status {status_code}")
+
+            # Add documentation URL if provided by GitHub
+            if "documentation_url" in error_data:
+                error_message += f" - See: {error_data['documentation_url']}"
+
+            raise GitHubAPIError(
+                error_message,
+                status_code=status_code,
                 response_data=error_data
             )
-
-        # Generic API error for other cases
-        raise GitHubAPIError(
-            error_data.get("message", f"API error: {response.status}"),
-            status_code=response.status,
-            response_data=error_data
-        )
+        except GitHubError:
+            # Add request context to all GitHub errors
+            e = sys.exc_info()[1]
+            if hasattr(e, "__dict__"):  # Add context attributes to the exception
+                e.__dict__["request_url"] = url
+                e.__dict__["request_method"] = method
+                e.__dict__["status_code"] = status_code
+            raise

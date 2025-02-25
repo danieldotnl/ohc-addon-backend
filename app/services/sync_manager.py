@@ -8,7 +8,8 @@ from typing import cast
 
 from app.models.ha_entity import Automation, HAEntity, HAEntityType
 from app.services.github import GitHubClient
-from app.services.ha_service import HomeAssistantService
+from app.services.github.errors import GitHubAPIError, GitHubAuthError
+from app.services.ha_service import HomeAssistantError, HomeAssistantService
 from app.services.ohc_state import OHCState
 from app.services.settings import SyncManagerConfig
 
@@ -16,16 +17,11 @@ logger = logging.getLogger(__name__)
 
 
 class SyncStatus(Enum):
-    """Home Assistant entity type."""
+    """Sync manager status."""
 
+    STOPPED = "stopped"
     RUNNING = "running"
     ERROR = "error"
-    SETUP_REQ = "setup required"
-    STOPPED = "stopped"
-
-
-class SetupRequiredError(Exception):
-    """Error class for setup required."""
 
 
 class SyncManager:
@@ -37,24 +33,44 @@ class SyncManager:
         self.github = github
         self.sync_config = sync_config
 
-        self._ohc_state: OHCState | None = None
+        self._ohc_state: OHCState = OHCState()
         self.status = SyncStatus.STOPPED
         self._task: asyncio.Task | None = None
         self._sleep_task: asyncio.Task | None = None
 
     def get_ohc_state(self) -> OHCState:
         """Get the ohc state manager."""
-        if self.status == SyncStatus.SETUP_REQ:
-            raise SetupRequiredError
         if self.status == SyncStatus.ERROR:
-            raise RuntimeError
-        return self.ohc_state
+            logger.error("Sync manager is in error state, cannot access state")
+            msg = "Sync manager is in error state"
+            raise RuntimeError(msg)
+        return self._ohc_state
 
     async def start(self) -> None:
         """Start the sync manager in a background task."""
-        logger.info("Starting sync manager with sync interval %d",
+        if self.status != SyncStatus.STOPPED:
+            logger.warning("Sync manager already running or in error state")
+            return
+
+        logger.info("Starting sync manager with sync interval %d seconds",
                     self.sync_config.interval)
-        self._task = asyncio.create_task(self._async_loop())
+        try:
+            # First load state from GitHub if available
+            state_json = await self.github.content.get_file_contents(self.sync_config.state_file)
+            if state_json:
+                logger.info("Loading existing state from GitHub")
+                self._ohc_state = OHCState.from_json(state_json)
+            else:
+                logger.info(
+                    "No existing state found, starting with empty state")
+
+            self.status = SyncStatus.RUNNING
+            self._task = asyncio.create_task(self._async_loop())
+        except Exception as e:
+            logger.exception("Failed to start sync manager: %s", str(e))
+            self.status = SyncStatus.ERROR
+            raise RuntimeError(
+                f"Failed to start sync manager: {e!s}") from e
 
     async def stop(self) -> None:
         """Stop the sync manager and cancel any ongoing sleep."""
@@ -62,81 +78,133 @@ class SyncManager:
         self.status = SyncStatus.STOPPED
         if self._sleep_task and not self._sleep_task.done():
             self._sleep_task.cancel()
-        if self._task:
+        if self._task and not self._task.done():
             await self._task
 
     async def _async_loop(self) -> None:
         """Run the async loop in background."""
-        # Prep the ohc state by creating the repo and checking if the state file is available.
-        state = await self.github.content.get_file_contents(self.sync_config.state_file)
-        self.ohc_state = OHCState.from_json(state) if state else OHCState()
-        self.status = SyncStatus.RUNNING
+        try:
+            while self.status == SyncStatus.RUNNING:
+                logger.info("Running sync process")
+                try:
+                    await self.run()
 
-        while self.status == SyncStatus.RUNNING:
-            logger.info("Running the loop process")
-            await self.run()
-            try:
-                self._sleep_task = asyncio.create_task(
-                    asyncio.sleep(self.sync_config.interval))
-                await self._sleep_task
-            except asyncio.CancelledError:
-                break
+                    # Sleep until next sync
+                    try:
+                        self._sleep_task = asyncio.create_task(
+                            asyncio.sleep(self.sync_config.interval))
+                        await self._sleep_task
+                    except asyncio.CancelledError:
+                        logger.info("Sleep interrupted, stopping sync loop")
+                        break
+                except Exception as e:
+                    logger.exception("Error during sync process: %s", str(e))
+                    # Continue running despite errors in a single sync
+        except Exception as e:
+            logger.exception("Fatal error in sync loop: %s", str(e))
+            self.status = SyncStatus.ERROR
 
     async def run(self) -> None:
-        """Run the sync process."""
+        """Run the sync process with improved error handling."""
         try:
-            ha_entities = await self.ha_service.get_all_automations_and_scripts()
+            logger.info("Starting sync process")
 
-            # Create a deep copy of ohc_state
+            # Phase 1: Fetch entities from Home Assistant
+            try:
+                ha_entities = await self.ha_service.get_all_automations_and_scripts()
+                logger.info("Retrieved %d entities from Home Assistant",
+                            len(ha_entities))
+            except HomeAssistantError:
+                logger.exception(
+                    "Failed to fetch entities from Home Assistant!")
+                return  # Exit early but don't change status
+
+            # Create a deep copy of ohc_state for modifications
             state_copy = OHCState()
-            for entity in self.ohc_state.get_entities():
+            for entity in self._ohc_state.get_entities():
                 state_copy.upsert(copy.deepcopy(entity))
 
-            updated, inserted, deleted = await self.update_entities(state_copy, ha_entities)
-            logger.info(
-                "Synced %d updated, %d inserted, %d deleted entities",
-                len(updated),
-                len(inserted),
-                len(deleted),
-            )
-        except Exception:
-            logger.exception("Error during sync process")
-            return
+            # Phase 2: Process entity changes
+            try:
+                updated, inserted, deleted = await self.update_entities(state_copy, ha_entities)
+                logger.info(
+                    "Processed entity changes: %d updated, %d inserted, %d deleted",
+                    len(updated),
+                    len(inserted),
+                    len(deleted),
+                )
+            except Exception as e:
+                logger.exception("Error processing entity changes: %s", str(e))
+                return
 
-        if len(updated) > 0 or len(inserted) > 0 or len(deleted) > 0:
+            # If nothing changed, we're done
+            if not (updated or inserted or deleted):
+                logger.info("No entities changed, skipping GitHub commit")
+                return
+
+            # Phase 3: Fetch content for changed entities
             try:
                 files = {}
                 for entity in inserted + updated:
-                    if entity.entity_type == HAEntityType.AUTOMATION:
-                        automation = cast(Automation, entity)
-                        prefix = "automations"
-                        content = await self.ha_service.get_automation_content(automation.automation_id)
-                    else:
-                        prefix = "scripts"
-                        content = await self.ha_service.get_script_content(entity.entity_id)
+                    try:
+                        if entity.entity_type == HAEntityType.AUTOMATION:
+                            automation = cast(Automation, entity)
+                            prefix = "automations"
+                            content = await self.ha_service.get_automation_content(automation.automation_id)
+                        else:
+                            prefix = "scripts"
+                            content = await self.ha_service.get_script_content(entity.entity_id)
 
-                    filename = f"{prefix}/{entity.entity_id}.yaml"
-                    files[filename] = content
+                        filename = f"{prefix}/{entity.entity_id}.yaml"
+                        files[filename] = content
+                    except Exception:
+                        logger.exception("Failed to fetch content for %s",
+                                         entity.entity_id)
+                        # Abort the entire commit process if any entity fails
+                        logger.warning(
+                            "Aborting commit due to failure fetching entity content")
+                        return  # Exit without committing anything
 
-            except Exception:
-                logger.exception("Error fetching content from Home Assistant")
-                raise
+                # Add state file
+                files[self.sync_config.state_file] = state_copy.to_json()
+                logger.info("Prepared %d files for commit", len(files))
 
-            files[self.sync_config.state_file] = state_copy.to_json()
+            except Exception as e:
+                logger.exception(
+                    "Error fetching content from Home Assistant: %s", str(e))
+                return
 
+            # Phase 4: Commit changes to GitHub
             try:
-                commit_result = await self.github.content.commit_changed_files(files, "Update automations and scripts.")
-                logger.info("Commit result: %s", commit_result)
+                commit_result = await self.github.content.commit_changed_files(
+                    files, f"Commit {len(updated)} updated, {len(inserted)} new, {len(deleted)} deleted automations and/or scripts."
+                )
 
-                # Only update the original state if GitHub commit was successful
                 if commit_result:
-                    # Replace the original state with the copy
+                    logger.info(
+                        "Successfully committed changes to GitHub: %s", commit_result.sha)
+                    # Update the original state only on successful commit
                     self.ohc_state = state_copy
-            except Exception:
-                logger.exception("Error committing files to GitHub!")
+                else:
+                    logger.info(
+                        "No changes to commit (GitHub reported files unchanged)")
+
+            except GitHubAuthError:
+                logger.exception("GitHub authentication error!")
                 self.status = SyncStatus.ERROR
-        else:
-            logger.info("No automations or scripts have changed.")
+            except GitHubAPIError:
+                logger.exception("GitHub API error!")
+                # Don't change status for temporary API issues
+            except Exception:
+                logger.exception(
+                    "Unexpected error committing to GitHub!")
+                self.status = SyncStatus.ERROR
+
+        except Exception:
+            logger.exception("Unexpected error in sync process!")
+            # We only set ERROR for truly unexpected exceptions in the overall process
+            # This will stop the sync loop
+            self.status = SyncStatus.ERROR
 
     async def update_entities(
         self,
