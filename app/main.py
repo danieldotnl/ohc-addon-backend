@@ -20,20 +20,41 @@ from .setup import setup_github
 
 def configure_logging() -> None:
     """Configure the logging."""
-    # StreamHandler for the console
-    stream_handler = logging.StreamHandler(sys.stdout)
+    is_dev = os.getenv("ENVIRONMENT") == "dev"
 
-    logging.basicConfig(
-        format=(
-            "%(asctime)s [%(processName)s: %(process)d]\
-                 [%(threadName)s: %(thread)d] [%(levelname)s] %(name)s: %(message)s"
-        ),
-        level=logging.DEBUG if os.getenv(
-            "ENVIRONMENT") == "dev" else logging.INFO,
-        handlers=[
-            stream_handler,
-        ],
+    # Create a custom formatter
+    class BetterFormatter(logging.Formatter):
+        def formatException(self, exc_info):
+            """Format exception without full traceback in production."""
+            if is_dev:
+                # In development, show full traceback
+                return super().formatException(exc_info)
+            # In production, show only the error message
+            exc_type, exc_value, _ = exc_info
+            return f"{exc_type.__name__}: {exc_value}"
+
+    # Format string with colors for better readability
+    log_format = (
+        "%(asctime)s [%(levelname)8s] %(name)s: %(message)s"
+        if not is_dev else
+        "%(asctime)s [%(levelname)8s] %(name)s (%(filename)s:%(lineno)d): %(message)s"
     )
+
+    # Configure root logger
+    logging.basicConfig(
+        level=logging.DEBUG if is_dev else logging.INFO,
+        format=log_format,
+        handlers=[logging.StreamHandler(sys.stdout)]
+    )
+
+    # Set formatter for all handlers
+    formatter = BetterFormatter(log_format)
+    for handler in logging.root.handlers:
+        handler.setFormatter(formatter)
+
+    # Reduce noise from third-party libraries
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+    logging.getLogger("aiohttp.client").setLevel(logging.WARNING)
 
 
 configure_logging()

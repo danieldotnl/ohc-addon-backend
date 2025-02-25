@@ -19,9 +19,9 @@ class GitHubAuthError(GitHubError):
 class GitHubAPIError(GitHubError):
     """API request errors."""
 
-    def __init__(self, message: str, status_code: int, response_data: dict = None) -> None:
+    def __init__(self, message: str, status_code: int, response_data: dict | None = None, error_type: str = "api_error") -> None:
         """Initialize the API error."""
-        super().__init__(message, status_code=status_code, error_type="api_error")
+        super().__init__(message, status_code=status_code, error_type=error_type)
         self.response_data = response_data or {}
 
 
