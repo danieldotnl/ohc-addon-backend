@@ -1,0 +1,42 @@
+[project]
+name = "OHC_Backend"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "aiofiles>=24.1.0",
+    "aiohttp>=3.11.12",
+    "fastapi[standard]>=0.115.8",
+    "uvicorn>=0.34.0",
+]
+
+[dependency-groups]
+dev = ["pre-commit>=4.1.0", "pytest-asyncio>=0.25.3", "ruff>=0.9.6"]
+
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+
+[tool.ruff.lint]
+select = ["ALL"]
+
+[tool.ruff]
+line-length = 120
+ignore = [
+    "ERA001", # Found commented-out code
+    #"TRY003", #Avoid specifying long messages outside the exception class
+    "COM812", # Trailing comma interferes with formatter (https://github.com/astral-sh/ruff/issues/9216)
+]
+
+[tool.ruff.lint.extend-per-file-ignores]
+"tests/**/*.py" = [
+    # at least this three should be fine in tests:
+    "S101", # asserts allowed in tests...
+    "ARG",  # Unused function args -> fixtures nevertheless are functionally relevant...
+    "FBT",  # Don't care about booleans as positional arguments in tests, e.g. via @pytest.mark.parametrize()
+    # The below are debateable
+    "PLR2004", # Magic value used in comparison, ...
+    "S311",    # Standard pseudo-random generators are not suitable for cryptographic purposes
+
+]

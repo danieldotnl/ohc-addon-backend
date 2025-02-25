@@ -1,0 +1,32 @@
+{
+    "name": "FastAPI + SvelteKit",
+    "image": "mcr.microsoft.com/devcontainers/python:3.13",
+    "features": {
+        "ghcr.io/devcontainers/features/node:1": {},
+        "ghcr.io/va-h/devcontainers-features/uv:1": {}
+    },
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "svelte.svelte-vscode",
+                "ms-python.vscode-pylance",
+                "dbaeumer.vscode-eslint",
+                "esbenp.prettier-vscode",
+                "charliermarsh.ruff",
+                "GitHub.copilot"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/usr/local/bin/python",
+                "python.linting.enabled": true,
+                "python.linting.pylintEnabled": true
+            }
+        }
+    },
+    "forwardPorts": [
+        8000,
+        5173
+    ],
+    "postCreateCommand": "",
+    "runArgs": ["--env-file",".devcontainer/.env"]
+}
