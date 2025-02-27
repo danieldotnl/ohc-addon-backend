@@ -5,9 +5,11 @@ import logging
 import aiohttp
 from fastapi import status
 
+from ohc_backend.services.github.content import GitHubContentManager
+
 from .base import GitHubBaseAPI
 from .errors import GitHubError
-from .models import GithubRepositoryRequestConfig, Repository
+from .models import CommitFilesRequest, GithubRepositoryRequestConfig, Repository
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +56,7 @@ class GitHubRepositoryManager:
         data = {
             "name": config.name,
             "private": config.private,
-            "auto_init": True,
+            "auto_init": False,
             "description": config.description,
         }
 
@@ -64,7 +66,39 @@ class GitHubRepositoryManager:
             json=data,
         )
         logger.debug("Created repository: %s", response)
-        return Repository(**response)
+        repo = Repository(**response)
+
+        # Now let's add our custom README
+        await self._initialize_repo_with_readme(repo.full_name)
+
+        return repo
+
+    async def _initialize_repo_with_readme(self, full_name: str) -> None:
+        """Initialize repository with our custom README."""
+        from pathlib import Path
+
+        import aiofiles
+
+        # Create content manager for this repository
+        content_manager = GitHubContentManager(self.api, full_name)
+
+        # Load README template
+        template_dir = Path(__file__).parent / "templates"
+        readme_path = template_dir / "README.md"
+
+        if readme_path.exists():
+            async with aiofiles.open(readme_path) as f:
+                readme_content = await f.read()
+
+            # Create initial commit with README
+            await content_manager.commit_files(
+                CommitFilesRequest(
+                    files={"README.md": readme_content},
+                    message="Initialize repository with OHC README",
+                    branch="main",
+                    update_only=False
+                )
+            )
 
     async def find_or_create_repository(self, config: GithubRepositoryRequestConfig) -> Repository:
         """Get or create repository."""
