@@ -87,6 +87,19 @@ class DependencyManager:
             if self._github_client:
                 self._github_client.rest_api.set_auth_token("")
 
+    async def setup_github(self) -> None:
+        """Start the github auth flow and create repo if required."""
+        settings = self.get_settings()
+        client = self.get_github_client()
+        if not settings.gh_token:
+            scope = settings.gh_config.scope
+            token = await client.authenticate(scope)
+            settings.gh_config.access_token = token
+            await settings.save()
+            client.rest_api.set_auth_token(token)
+
+        await client.init_repository(settings.gh_config.repo_request)
+
 
 data_folder = os.getenv("HA_DATA_FOLDER", "../../data")
 deps = DependencyManager(f"{data_folder}/config.json")

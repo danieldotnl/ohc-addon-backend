@@ -15,7 +15,6 @@ from ohc_backend.utils.request_context import request_id_middleware
 
 from .dependencies import deps
 from .routers import automations
-from .setup import setup_github
 
 configure_logging()
 
@@ -31,7 +30,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:  # noqa: ARG001
 
         try:
             logger.info("Setting up GitHub integration")
-            await setup_github(deps.get_github_client())
+            await deps.setup_github()
         except Exception as e:
             if isinstance(e, TimeoutError):
                 msg = "GitHub authentication timed out. Please restart the add-on to try again."
