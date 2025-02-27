@@ -1,3 +1,7 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "OHC_Backend"
 version = "0.1.0"
@@ -14,9 +18,13 @@ dependencies = [
 [dependency-groups]
 dev = ["pre-commit>=4.1.0", "pytest-asyncio>=0.25.3", "ruff>=0.9.6"]
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/ohc_backend"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["src"]
 
 [tool.ruff.lint]
 select = ["ALL"]
@@ -27,7 +35,7 @@ ignore = [
     "ERA001", # Found commented-out code
     "TRY003", #Avoid specifying long messages outside the exception class
     "COM812", # Trailing comma interferes with formatter (https://github.com/astral-sh/ruff/issues/9216)
-    "EM102", # Exception must not use an f-string literal, assign to variable first 
+    "EM102",  # Exception must not use an f-string literal, assign to variable first 
 ]
 
 [tool.ruff.lint.extend-per-file-ignores]

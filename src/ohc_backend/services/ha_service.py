@@ -7,7 +7,7 @@ import aiohttp
 import yaml
 from fastapi import status
 
-from app.models.ha_entity import Automation, HAEntity, Script
+from ohc_backend.models.ha_entity import Automation, HAEntity, Script
 
 logger = logging.getLogger(__name__)
 

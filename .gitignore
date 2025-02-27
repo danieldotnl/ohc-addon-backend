@@ -2,3 +2,6 @@
 **/.env
 tests/__pycache__/
 data/
+*.egg-info/
+dist/
+build/

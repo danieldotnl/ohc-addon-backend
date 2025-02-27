@@ -21,7 +21,7 @@ class RequestIDLogFilter(logging.Filter):
 
     def filter(self, record) -> bool:
         """Add request ID to log records."""
-        from app.utils.request_context import get_request_id
+        from ohc_backend.utils.request_context import get_request_id
         record.request_id = get_request_id() or "-"
         return True
 

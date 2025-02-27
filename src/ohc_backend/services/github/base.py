@@ -84,7 +84,7 @@ class GitHubBaseAPI:
 
             if status_code == status.HTTP_401_UNAUTHORIZED:
                 # Auth error handling with token cleanup
-                from app.dependencies import deps
+                from ohc_backend.dependencies import deps
                 try:
                     logger.warning(
                         "GitHub authentication failed. Clearing invalid token.")

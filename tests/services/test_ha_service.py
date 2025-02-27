@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from fastapi import status
 
-from app.services.ha_service import HomeAssistantService
+from ohc_backend.services.ha_service import HomeAssistantService
 
 
 class TestHomeAssistantService:
@@ -155,7 +155,7 @@ class TestHomeAssistantService:
     @pytest.mark.asyncio
     async def test_get_automation(self, ha_service):
         """Test getting an automation entity."""
-        from app.models.ha_entity import Automation
+        from ohc_backend.models.ha_entity import Automation
 
         mock_state = {
             "entity_id": "automation.test_auto",
@@ -182,7 +182,7 @@ class TestHomeAssistantService:
     @pytest.mark.asyncio
     async def test_get_script(self, ha_service):
         """Test getting a script entity."""
-        from app.models.ha_entity import Script
+        from ohc_backend.models.ha_entity import Script
 
         mock_state = {
             "entity_id": "script.test_script",
@@ -207,7 +207,7 @@ class TestHomeAssistantService:
     @pytest.mark.asyncio
     async def test_get_all_automations_and_scripts(self, ha_service):
         """Test getting all automations and scripts."""
-        from app.models.ha_entity import Automation, Script
+        from ohc_backend.models.ha_entity import Automation, Script
 
         mock_states = [
             {

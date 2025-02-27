@@ -5,9 +5,9 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.dependencies import deps
-from app.models.ha_entity import Automation
-from app.services.sync_manager import SyncManager
+from ohc_backend.dependencies import deps
+from ohc_backend.models.ha_entity import Automation
+from ohc_backend.services.sync_manager import SyncManager
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

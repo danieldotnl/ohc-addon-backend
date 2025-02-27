@@ -8,11 +8,10 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from fastapi.staticfiles import StaticFiles
 
-from app.errors import AppError, ErrorCode
-from app.utils.logging import configure_logging, log_error
-from app.utils.request_context import request_id_middleware
+from ohc_backend.errors import AppError, ErrorCode
+from ohc_backend.utils.logging import configure_logging, log_error
+from ohc_backend.utils.request_context import request_id_middleware
 
 from .dependencies import deps
 from .routers import automations
@@ -123,6 +122,6 @@ async def health_check() -> dict:
 
 # Mount frontend last (catches all other routes)
 # Only serve frontend files in production
-if os.getenv("ENVIRONMENT") != "dev":
-    app.mount("/", StaticFiles(directory="../frontend/build",
-              html=True), name="frontend")
+# if os.getenv("ENVIRONMENT") != "dev":
+#     app.mount("/", StaticFiles(directory="../frontend/build",
+#               html=True), name="frontend")

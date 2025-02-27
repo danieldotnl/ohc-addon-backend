@@ -4,8 +4,8 @@ from datetime import datetime
 
 import pytest
 
-from app.models.ha_entity import Automation, Script
-from app.services.ohc_state import OHCState
+from ohc_backend.models.ha_entity import Automation, Script
+from ohc_backend.services.ohc_state import OHCState
 
 
 @pytest.fixture

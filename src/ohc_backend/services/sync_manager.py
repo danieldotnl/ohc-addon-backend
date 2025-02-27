@@ -6,13 +6,13 @@ import logging
 from enum import Enum
 from typing import cast
 
-from app.models.ha_entity import Automation, HAEntity, HAEntityType
-from app.services.github import GitHubClient
-from app.services.github.errors import GitHubAPIError, GitHubAuthError, GitHubNotFoundError
-from app.services.ha_service import HomeAssistantError, HomeAssistantService
-from app.services.ohc_state import OHCState
-from app.services.settings import SyncManagerConfig
-from app.utils.logging import log_error
+from ohc_backend.models.ha_entity import Automation, HAEntity, HAEntityType
+from ohc_backend.services.github import GitHubClient
+from ohc_backend.services.github.errors import GitHubAPIError, GitHubAuthError, GitHubNotFoundError
+from ohc_backend.services.ha_service import HomeAssistantError, HomeAssistantService
+from ohc_backend.services.ohc_state import OHCState
+from ohc_backend.services.settings import SyncManagerConfig
+from ohc_backend.utils.logging import log_error
 
 logger = logging.getLogger(__name__)
 

@@ -4,7 +4,7 @@ import base64
 import hashlib
 import logging
 
-from app.services.github.rest import GitHubRestAPI
+from ohc_backend.services.github.rest import GitHubRestAPI
 
 from .models import (
     CommitFilesRequest,
@@ -58,7 +58,8 @@ class GitHubContentManager:
 
     async def get_tree(self, tree_sha: str, *, recursive: bool = False) -> GitTree:
         """Get a Git tree by its SHA."""
-        logger.debug("Fetching tree with SHA: %s (recursive: %s)", tree_sha, recursive)
+        logger.debug("Fetching tree with SHA: %s (recursive: %s)",
+                     tree_sha, recursive)
         params = {"recursive": "1"} if recursive else {}
         response = await self.api.make_request(
             "GET",
@@ -104,7 +105,8 @@ class GitHubContentManager:
         commit_sha: str,
     ) -> GitReference:
         """Update branch to point to a new commit."""
-        logger.debug("Updating branch %s to point to commit: %s", branch, commit_sha)
+        logger.debug("Updating branch %s to point to commit: %s",
+                     branch, commit_sha)
         url = f"{self.base_url}/git/refs/heads/{branch}"
         data = {"sha": commit_sha, "force": True}
         response = await self.api.make_request("PATCH", url, json=data)
@@ -125,8 +127,10 @@ class GitHubContentManager:
 
             tree_items = []
             if request.update_only:
-                logger.debug("Preserving existing files not included in this commit")
-                tree_items.extend(item for item in current_tree.tree if item.path not in request.files)
+                logger.debug(
+                    "Preserving existing files not included in this commit")
+                tree_items.extend(
+                    item for item in current_tree.tree if item.path not in request.files)
 
             logger.debug("Creating blobs for new/updated files")
             for path, content in request.files.items():
@@ -134,7 +138,8 @@ class GitHubContentManager:
                 blob = await self.create_blob(content)
                 tree_items.append(GitTreeItem(path=path, sha=blob.sha))
 
-            logger.debug("Creating new tree with %d total items", len(tree_items))
+            logger.debug("Creating new tree with %d total items",
+                         len(tree_items))
             new_tree = await self.create_tree(tree_items)
 
             logger.debug("Creating commit with the new tree")
@@ -144,7 +149,8 @@ class GitHubContentManager:
                 current_ref.object["sha"],
             )
 
-            logger.debug("Updating branch %s to the new commit", request.branch)
+            logger.debug("Updating branch %s to the new commit",
+                         request.branch)
             await self.update_branch_reference(request.branch, commit.sha)
 
             logger.debug("Files successfully committed")
@@ -208,7 +214,8 @@ class GitHubContentManager:
 
     async def get_file_contents(self, path: str) -> str | None:
         """Fetch a file from the repository if it exists."""
-        logger.debug("Checking for file %s in repository: %s", path, self.repository_full_name)
+        logger.debug("Checking for file %s in repository: %s",
+                     path, self.repository_full_name)
 
         response = await self.api.make_request(
             "GET",

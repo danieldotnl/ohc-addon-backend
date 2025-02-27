@@ -3,11 +3,11 @@
 import logging
 import os
 
-from app.services.github import GitHubClient
-from app.services.ha_service import HomeAssistantService
-from app.services.ohc_state import OHCState
-from app.services.settings import Settings
-from app.services.sync_manager import SyncManager
+from ohc_backend.services.github import GitHubClient
+from ohc_backend.services.ha_service import HomeAssistantService
+from ohc_backend.services.ohc_state import OHCState
+from ohc_backend.services.settings import Settings
+from ohc_backend.services.sync_manager import SyncManager
 
 logger = logging.getLogger(__name__)
 
@@ -88,5 +88,5 @@ class DependencyManager:
                 self._github_client.rest_api.set_auth_token("")
 
 
-data_folder = os.getenv("HA_DATA_FOLDER", "./data")
+data_folder = os.getenv("HA_DATA_FOLDER", "../../data")
 deps = DependencyManager(f"{data_folder}/config.json")

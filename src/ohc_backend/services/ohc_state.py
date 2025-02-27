@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 
-from app.models.ha_entity import Automation, HAEntity, Script
+from ohc_backend.models.ha_entity import Automation, HAEntity, Script
 
 
 class OHCState:
@@ -72,7 +72,7 @@ class OHCState:
         """Serialize the storage to JSON string with pretty printing."""
         return json.dumps(
             self._storage,
-            default=lambda x: json.loads(x.json()),
+            default=lambda x: json.loads(x.model_dump_json()),
             indent=2,
             sort_keys=True,
         )
@@ -97,6 +97,7 @@ class OHCState:
                 msg = f"Unknown entity type: {entity_type}"
                 raise ValueError(msg)
 
-            storage._storage[entity_id] = entity_class.parse_obj(entity_data)  # noqa: SLF001
+            storage._storage[entity_id] = entity_class.model_validate(  # noqa: SLF001
+                entity_data)
 
         return storage

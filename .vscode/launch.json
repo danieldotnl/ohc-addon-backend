@@ -8,9 +8,9 @@
       "name": "Python Debugger: FastAPI",
       "type": "debugpy",
       "request": "launch",
-      "module": "fastapi",
-      "cwd": "${workspaceFolder}/app/",
-      "args": ["dev"],
+      "module": "ohc_backend",
+      "cwd": "${workspaceFolder}/src/",
+      "args": [],
       "jinja": true,
       "justMyCode": false
     }

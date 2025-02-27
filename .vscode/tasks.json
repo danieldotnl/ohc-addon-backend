@@ -2,19 +2,9 @@
   "version": "2.0.0",
   "tasks": [
     {
-      "label": "Run Backend Dev",
+      "label": "Run OHC Backend Dev",
       "type": "shell",
-      "command": "uv run fastapi dev",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "problemMatcher": []
-    },
-    {
-      "label": "Run Frontend Dev",
-      "type": "shell",
-      "command": "cd frontend && npm run dev -- --host",
+      "command": "python -m ohc_backend",
       "group": {
         "kind": "build",
         "isDefault": true

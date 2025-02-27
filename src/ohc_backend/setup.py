@@ -2,8 +2,8 @@
 
 import logging
 
-from app.dependencies import deps
-from app.services.github import GitHubClient
+from ohc_backend.dependencies import deps
+from ohc_backend.services.github import GitHubClient
 
 logger = logging.getLogger(__name__)
 
