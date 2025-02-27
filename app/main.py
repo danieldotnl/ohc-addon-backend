@@ -2,7 +2,6 @@
 
 import logging
 import os
-import sys
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
@@ -12,50 +11,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.errors import AppError, ErrorCode
+from app.utils.logging import configure_logging, log_error
+from app.utils.request_context import request_id_middleware
 
 from .dependencies import deps
 from .routers import automations
 from .setup import setup_github
-
-
-def configure_logging() -> None:
-    """Configure the logging."""
-    is_dev = os.getenv("ENVIRONMENT") == "dev"
-
-    # Create a custom formatter
-    class BetterFormatter(logging.Formatter):
-        def formatException(self, exc_info):
-            """Format exception without full traceback in production."""
-            if is_dev:
-                # In development, show full traceback
-                return super().formatException(exc_info)
-            # In production, show only the error message
-            exc_type, exc_value, _ = exc_info
-            return f"{exc_type.__name__}: {exc_value}"
-
-    # Format string with colors for better readability
-    log_format = (
-        "%(asctime)s [%(levelname)8s] %(name)s: %(message)s"
-        if not is_dev else
-        "%(asctime)s [%(levelname)8s] %(name)s (%(filename)s:%(lineno)d): %(message)s"
-    )
-
-    # Configure root logger
-    logging.basicConfig(
-        level=logging.DEBUG if is_dev else logging.INFO,
-        format=log_format,
-        handlers=[logging.StreamHandler(sys.stdout)]
-    )
-
-    # Set formatter for all handlers
-    formatter = BetterFormatter(log_format)
-    for handler in logging.root.handlers:
-        handler.setFormatter(formatter)
-
-    # Reduce noise from third-party libraries
-    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
-    logging.getLogger("aiohttp.client").setLevel(logging.WARNING)
-
 
 configure_logging()
 
@@ -72,23 +33,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:  # noqa: ARG001
         try:
             logger.info("Setting up GitHub integration")
             await setup_github(deps.get_github_client())
-        except TimeoutError as err:
-            msg = "GitHub authentication timed out. Please restart the add-on to try again."
-            logger.exception(msg)
-            raise AppError(
-                message=msg,
-                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-                error_code=ErrorCode.AUTHENTICATION_FAILED
-            ) from err
         except Exception as e:
-            msg = "Failed to retrieve GitHub access token"
-            logger.exception(msg)
-            raise AppError(
-                message=msg,
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                error_code=ErrorCode.AUTHENTICATION_FAILED,
-                details={"error": str(e)}
-            ) from e
+            if isinstance(e, TimeoutError):
+                msg = "GitHub authentication timed out. Please restart the add-on to try again."
+            else:
+                msg = "Failed to retrieve GitHub access token"
+
+            log_error(logger, msg, e, critical=True)
+            error_code = ErrorCode.AUTHENTICATION_FAILED
+            status_code = status.HTTP_504_GATEWAY_TIMEOUT if isinstance(
+                e, TimeoutError) else status.HTTP_401_UNAUTHORIZED
+            raise AppError(message=msg, status_code=status_code,
+                           error_code=error_code) from e
 
         try:
             logger.info("Starting sync manager")
@@ -97,14 +53,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:  # noqa: ARG001
             logger.info("Application started successfully")
             yield
         except Exception as e:
-            logger.exception("Error starting sync manager")
+            log_error(logger, "Error starting sync manager", e, critical=True)
             raise AppError(
-                message=f"Sync manager failed to start: {e!s}",
-                error_code=ErrorCode.SYNC_ERROR
-            ) from e
+                message=f"Sync manager failed to start: {e!s}", error_code=ErrorCode.SYNC_ERROR) from e
     except Exception as e:
         if not isinstance(e, AppError):
-            logger.exception("Critical startup error")
+            log_error(logger, "Critical startup error", e, critical=True)
             msg = "Application failed to start!"
             raise AppError(msg) from e
         raise
@@ -114,11 +68,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:  # noqa: ARG001
 
 
 app = FastAPI(lifespan=lifespan, debug=os.getenv("ENVIRONMENT") == "dev")
+app.middleware("http")(request_id_middleware)
 
 
 @app.exception_handler(AppError)
-async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
+async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:  # noqa: ARG001
     """Handle application errors."""
+    # No need to log here, already logged where the error occurred
     return JSONResponse(
         status_code=exc.status_code,
         content=exc.to_dict()
@@ -128,7 +84,9 @@ async def app_error_handler(request: Request, exc: AppError) -> JSONResponse:
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Handle unhandled exceptions."""
-    logger.exception("Unhandled exception")
+    log_error(
+        logger, f"Unhandled exception in {request.method} {request.url.path}", exc, critical=True)
+
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={

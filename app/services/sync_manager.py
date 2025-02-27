@@ -12,6 +12,7 @@ from app.services.github.errors import GitHubAPIError, GitHubAuthError, GitHubNo
 from app.services.ha_service import HomeAssistantError, HomeAssistantService
 from app.services.ohc_state import OHCState
 from app.services.settings import SyncManagerConfig
+from app.utils.logging import log_error
 
 logger = logging.getLogger(__name__)
 
@@ -70,10 +71,9 @@ class SyncManager:
             self.status = SyncStatus.RUNNING
             self._task = asyncio.create_task(self._async_loop())
         except Exception as e:
-            logger.exception("Failed to start sync manager: %s", str(e))
+            log_error(logger, "Failed to start sync manager", e)
             self.status = SyncStatus.ERROR
-            raise RuntimeError(
-                f"Failed to start sync manager: {e!s}") from e
+            raise RuntimeError(f"Failed to start sync manager: {e!s}") from e
 
     async def stop(self) -> None:
         """Stop the sync manager and cancel any ongoing sleep."""
@@ -88,7 +88,6 @@ class SyncManager:
         """Run the async loop in background."""
         try:
             while self.status == SyncStatus.RUNNING:
-                logger.info("Running sync process")
                 try:
                     await self.run()
 
@@ -110,7 +109,7 @@ class SyncManager:
     async def run(self) -> None:
         """Run the sync process with improved error handling."""
         try:
-            logger.info("Starting sync process")
+            logger.info("Starting syncing changes...")
 
             # Phase 1: Fetch entities from Home Assistant
             try:
