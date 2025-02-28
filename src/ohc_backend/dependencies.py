@@ -101,5 +101,5 @@ class DependencyManager:
         await client.init_repository(settings.gh_config.repo_request)
 
 
-data_folder = os.getenv("HA_DATA_FOLDER", "../../data")
+data_folder = os.getenv("HA_DATA_FOLDER", "/data")
 deps = DependencyManager(f"{data_folder}/config.json")

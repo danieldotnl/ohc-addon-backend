@@ -93,7 +93,7 @@ class HAConfig(BaseModel):
         description="Home Assistant authentication token",
     )
     data_folder: str = Field(
-        default="../../data",
+        default="/data",
         env="HA_DATA_FOLDER",
         description="Path to data folder",
     )
