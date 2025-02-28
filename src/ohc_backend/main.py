@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ohc_backend.errors import AppError, ErrorCode
+from ohc_backend.services.github.errors import GitHubAuthError
 from ohc_backend.utils.logging import configure_logging, log_error
 from ohc_backend.utils.request_context import request_id_middleware
 
@@ -31,18 +32,21 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:  # noqa: ARG001
         try:
             logger.info("Setting up GitHub integration")
             await deps.setup_github()
-        except Exception as e:
-            if isinstance(e, TimeoutError):
-                msg = "GitHub authentication timed out. Please restart the add-on to try again."
-            else:
-                msg = "Failed to retrieve GitHub access token"
-
+        except TimeoutError as e:
+            msg = "GitHub authentication timed out. Please restart the add-on to try again."
             log_error(logger, msg, e, critical=True)
-            error_code = ErrorCode.AUTHENTICATION_FAILED
-            status_code = status.HTTP_504_GATEWAY_TIMEOUT if isinstance(
-                e, TimeoutError) else status.HTTP_401_UNAUTHORIZED
-            raise AppError(message=msg, status_code=status_code,
-                           error_code=error_code) from e
+            raise AppError(message=msg, status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                           error_code=ErrorCode.AUTHENTICATION_FAILED) from e
+        except GitHubAuthError as e:
+            msg = "Failed to authenticate with GitHub"
+            log_error(logger, msg, e, critical=True)
+            raise AppError(message=msg, status_code=status.HTTP_401_UNAUTHORIZED,
+                           error_code=ErrorCode.AUTHENTICATION_FAILED) from e
+        except Exception as e:
+            msg = f"Failed to set up GitHub integration: {e}"
+            log_error(logger, msg, e, critical=True)
+            raise AppError(message=msg, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                           error_code=ErrorCode.GITHUB_API_ERROR) from e
 
         try:
             logger.info("Starting sync manager")

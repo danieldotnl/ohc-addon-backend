@@ -1,9 +1,14 @@
 """GitHub client that orchestrates all operations."""
 
+import logging
+
 from .auth import GitHubAuthManager
 from .content import GitHubContentManager
 from .models import GithubRepositoryRequestConfig
-from .rest import GitHubRepositoryManager, GitHubRestAPI
+from .repository import GitHubRepositoryManager, RepositoryInitializer
+from .rest import GitHubRestAPI
+
+logger = logging.getLogger(__name__)
 
 
 class GitHubClient:
@@ -14,6 +19,7 @@ class GitHubClient:
         self.rest_api = GitHubRestAPI(api_url)
         self.auth_manager = GitHubAuthManager(client_id)
         self.repo_manager = GitHubRepositoryManager(self.rest_api)
+        self.repo_initializer = RepositoryInitializer(self.rest_api)
         self._content_manager: GitHubContentManager | None = None
 
         if access_token:
@@ -27,8 +33,14 @@ class GitHubClient:
 
     async def init_repository(self, config: GithubRepositoryRequestConfig) -> None:
         """Initialize or connect to a repository."""
-        repository = await self.repo_manager.find_or_create_repository(config)
-        self._content_manager = GitHubContentManager(self.rest_api, repository.full_name)
+        repository = await self.repo_manager.find_repository(config.name)
+        if not repository:
+            logger.info("Repository not found, creating new repository")
+            repository = await self.repo_manager.create_repository(config)
+            await self.repo_initializer.initialize_with_readme(repository.full_name)
+
+        self._content_manager = GitHubContentManager(
+            self.rest_api, repository.full_name)
 
     @property
     def content(self) -> GitHubContentManager:
