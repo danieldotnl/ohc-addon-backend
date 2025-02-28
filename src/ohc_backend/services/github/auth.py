@@ -98,10 +98,9 @@ class GitHubAuthAPI(GitHubBaseAPI):
 class GitHubAuthManager:
     """Handles GitHub authentication flows."""
 
-    def __init__(self, client_id: str, timeout_minutes: int = 5) -> None:
+    def __init__(self, client_id: str) -> None:
         """Initialize the authentication manager."""
         self.client_id = client_id
-        self.timeout_minutes = timeout_minutes
         self._auth_api = None
 
     async def authenticate(self, scope: str) -> str:
@@ -120,7 +119,7 @@ class GitHubAuthManager:
             logger.info(
                 "**********************************************************************************")
             start_time = time.time()
-            timeout = self.timeout_minutes * 60  # Convert to seconds
+            timeout = flow_info.expires_in - 5  # 5 seconds buffer
 
             while time.time() - start_time < timeout:
                 try:
@@ -137,8 +136,8 @@ class GitHubAuthManager:
                 await asyncio.sleep(flow_info.interval)
 
             logger.error("Authentication timed out after %d minutes",
-                         self.timeout_minutes)
-            raise AuthenticationTimeoutError(self.timeout_minutes)  # noqa: TRY301
+                         timeout)
+            raise AuthenticationTimeoutError(timeout)  # noqa: TRY301
 
         except Exception as e:
             if not isinstance(e, GitHubError):
