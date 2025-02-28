@@ -110,14 +110,14 @@ class GitHubAuthManager:
         try:
             flow_info = await auth_api.start_device_flow(self.client_id, scope)
             logger.info(
-                "**********************************************************************************")
+                "\n**********************************************************************************\n")
             logger.info("Device flow started. Please complete authentication:")
             logger.info("Verification URL: %s", flow_info.verification_uri)
             logger.info("User code: %s", flow_info.user_code)
             logger.info("Code expires in %d minutes",
                         flow_info.expires_in // 60)
             logger.info(
-                "**********************************************************************************")
+                "\n**********************************************************************************\n")
             start_time = time.time()
             timeout = flow_info.expires_in - 5  # 5 seconds buffer
 
