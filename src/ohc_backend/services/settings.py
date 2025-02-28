@@ -83,7 +83,7 @@ class HAConfig(BaseModel):
     """Home Assistant configuration."""
 
     server: str = Field(
-        default="http://localhost:8123",
+        default="http://supervisor.core",
         env="HA_SERVER",
         description="Home Assistant server URL",
     )
