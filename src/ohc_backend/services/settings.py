@@ -72,6 +72,11 @@ class SyncManagerConfig(BaseModel):
         default=".ohcstate/ohc_state.json",
         description="Path to state file",
     )
+    ha_max_parallel_requests: int = Field(
+        default=10,
+        description="Maximum number of parallel requests to Home Assistant",
+        env="HA_MAX_PARALLEL_REQUESTS",
+    )
 
 
 class HAConfig(BaseModel):

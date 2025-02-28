@@ -164,6 +164,31 @@ class SyncManager:
             log_error(logger, "Failed to fetch entities from Home Assistant", e)
             return None
 
+    async def fetch_entity_contents_parallel(self, entities: list[HAEntity]) -> list[tuple[HAEntity, str]]:
+        """Fetch content for multiple entities in parallel with controlled concurrency."""
+        # Create a semaphore to limit concurrency
+        semaphore = asyncio.Semaphore(10)  # Limit to 10 concurrent requests
+
+        async def fetch_with_limit(entity: HAEntity) -> tuple[HAEntity, str]:
+            async with semaphore:
+                # This ensures only 10 coroutines can execute this block at once
+                content = await self._fetch_entity_content(entity)
+                return entity, content
+
+        # Create tasks for all entities but they'll be limited by the semaphore
+        tasks = [fetch_with_limit(entity) for entity in entities]
+
+        try:
+            # If any task fails, this will raise an exception
+            results = await asyncio.gather(*tasks)
+        except Exception as e:
+            log_error(
+                logger, "Failed to fetch content for some entities, aborting sync", e)
+            # Re-raise to abort the current sync
+            raise RuntimeError("Entity content fetch failed") from e
+        else:
+            return results
+
     async def _process_changes(
         self,
         ha_entities: list[HAEntity],
@@ -179,13 +204,16 @@ class SyncManager:
             files = {}
             updated = []
 
-            # Process metadata changes first
-            for entity in metadata_updated + inserted:
-                content = await self._fetch_entity_content(entity)
-                if content:
-                    prefix = "automations" if entity.entity_type == HAEntityType.AUTOMATION else "scripts"
-                    files[f"{prefix}/{entity.entity_id}.yaml"] = content
-                    updated.append(entity)
+            # Process metadata changes in parallel
+            entities_to_process = metadata_updated + inserted
+            if entities_to_process:
+                processed_results = await self.fetch_entity_contents_parallel(entities_to_process)
+
+                for entity, content in processed_results:
+                    if content:
+                        prefix = "automations" if entity.entity_type == HAEntityType.AUTOMATION else "scripts"
+                        files[f"{prefix}/{entity.entity_id}.yaml"] = content
+                        updated.append(entity)
 
             # Check content for timestamp-only changes
             await self._check_content_changes(
@@ -248,9 +276,13 @@ class SyncManager:
             and e.last_changed != self._ohc_state.get_entity(e.entity_id).last_changed
         ]
 
-        for entity in timestamp_changed_entities:
-            # Fetch current content
-            content = await self._fetch_entity_content(entity)
+        if not timestamp_changed_entities:
+            return
+
+        # Process these entities in parallel
+        processed_results = await self.fetch_entity_contents_parallel(timestamp_changed_entities)
+
+        for entity, content in processed_results:
             if not content:
                 continue
 
