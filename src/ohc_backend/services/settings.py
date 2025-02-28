@@ -94,7 +94,7 @@ class HAConfig(BaseModel):
     )
     data_folder: str = Field(
         default="../../data",
-        # env="HA_DATA_FOLDER",
+        env="HA_DATA_FOLDER",
         description="Path to data folder",
     )
 
