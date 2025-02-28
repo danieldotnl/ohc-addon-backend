@@ -1,4 +1,4 @@
-# Home Assistant Automations & Scripts Repository
+# Our Home Connected | Versioning: Home Assistant Automations & Scripts Repository
 
 ## Important Notice
 
