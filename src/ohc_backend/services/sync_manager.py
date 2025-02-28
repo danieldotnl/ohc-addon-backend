@@ -109,7 +109,7 @@ class SyncManager:
     async def run(self) -> None:
         """Run the sync process with improved error handling."""
         try:
-            logger.info("Starting syncing changes...")
+            logger.info("Start syncing changes...")
 
             # Phase 1: Fetch entities and identify changes
             result = await self._fetch_entities_and_prepare_state()
