@@ -35,7 +35,8 @@ ignore = [
     "ERA001", # Found commented-out code
     "TRY003", #Avoid specifying long messages outside the exception class
     "COM812", # Trailing comma interferes with formatter (https://github.com/astral-sh/ruff/issues/9216)
-    "EM102",  # Exception must not use an f-string literal, assign to variable first 
+    "EM102",  # Exception must not use an f-string literal, assign to variable first
+    "EM101",  # Exception must not use an f-string literal, assign to variable first
 ]
 
 [tool.ruff.lint.extend-per-file-ignores]
