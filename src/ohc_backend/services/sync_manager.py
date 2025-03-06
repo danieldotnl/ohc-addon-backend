@@ -353,23 +353,26 @@ class SyncManager:
         inserted_entities: list[HAEntity],
         state_copy: OHCState
     ) -> tuple[dict[str, str], list[HAEntity]] | None:
-        """Check content changes and filter out timestamp-only updates."""
+        """Check content changes using SHA comparison."""
         try:
-            files = {}
-            final_changed_entities = []
+            # Prepare a map of file paths to content
+            files_map = {}
+            entity_map = {}  # Map of file paths to entities
+            path_to_entity_id = {}  # Map file paths to entity_ids for lookups
 
             # Process all changed and new entities
             entities_to_check = changed_entities + inserted_entities
 
             if not entities_to_check:
                 logger.debug("No entities to check for content changes")
-                return files, final_changed_entities
+                return {}, []
 
             # Fetch content for all potentially changed entities
-            logger.debug("Checking content for %d entities",
+            logger.debug("Fetching content for %d entities",
                          len(entities_to_check))
             content_results = await self.fetch_entity_contents_parallel(entities_to_check)
 
+            # Build file map and entity map
             for entity, content in content_results:
                 if not content:
                     logger.warning(
@@ -380,70 +383,63 @@ class SyncManager:
                 prefix = "automations" if entity.entity_type == HAEntityType.AUTOMATION else "scripts"
                 file_path = f"{prefix}/{entity.entity_id}.yaml"
 
-                try:
-                    # Get content from GitHub
-                    old_content = await self.github.content.get_file_contents(file_path)
+                files_map[file_path] = content
+                entity_map[file_path] = entity
+                path_to_entity_id[file_path] = entity.entity_id
 
-                    if entity in inserted_entities:
-                        # For new entities, always include
-                        logger.debug(
-                            "New entity: %s - adding to commit", entity.entity_id)
-                        files[file_path] = content
-                    elif old_content is None:
-                        # File doesn't exist in GitHub yet for an existing entity
-                        logger.info(
-                            "Entity exists but file not in GitHub: %s - adding to commit", entity.entity_id)
-                        files[file_path] = content
-                        final_changed_entities.append(entity)
-                    elif content != old_content:
-                        # Content has changed
-                        logger.info(
-                            "Content changed for %s - adding to commit", entity.entity_id)
-                        files[file_path] = content
-                        final_changed_entities.append(entity)
-                    else:
-                        # Content matches - check if metadata changed (not just timestamp)
-                        previous_entity = self._ohc_state.get_entity(
-                            entity.entity_id)
+            if not files_map:
+                logger.debug("No valid content to check")
+                return {}, []
 
-                        if previous_entity and (
-                            entity.friendly_name != previous_entity.friendly_name or
-                            entity.state != previous_entity.state or
-                            entity.is_deleted != previous_entity.is_deleted
-                        ):
-                            # Real metadata changes
-                            logger.info("Metadata changed (not just timestamp) for %s - adding to commit",
-                                        entity.entity_id)
-                            files[file_path] = content
-                            final_changed_entities.append(entity)
-                        else:
-                            # Only timestamp changed - don't include in commit
-                            logger.debug(
-                                "Only timestamp changed for %s - not adding to commit", entity.entity_id)
-                            # Always update the state even for timestamp-only changes
-                            state_copy.update(entity)
+            # Use GitHub client's get_changed_files to efficiently determine changes
+            changed_files, _, _ = await self.github.content.get_changed_files(files_map)
 
-                except GitHubNotFoundError:
-                    # File doesn't exist in GitHub
-                    logger.info(
-                        "File not found in GitHub: %s - adding to commit", file_path)
-                    files[file_path] = content
+            # Process results - entities with content changes
+            final_changed_entities = []
+
+            for file_path, content in changed_files.items():
+                entity = entity_map.get(file_path)
+                if entity:
                     if entity in changed_entities:
                         final_changed_entities.append(entity)
                     # If entity in inserted_entities, it's already handled
-                except Exception as e:
-                    log_error(
-                        logger, f"Error checking content for {entity.entity_id}", e)
+
+            # IMPORTANT: Update state for all entities, even those without content changes
+            for entity in entities_to_check:
+                # Always update the state in state_copy
+                state_copy.update(entity)
 
             logger.info(
-                "Content analysis: %d entities have actual changes (excluding timestamp-only)",
+                "SHA-based content analysis: %d entities have actual changes",
                 len(final_changed_entities)
             )
 
-            return files, final_changed_entities
+            # For entities with no content changes, check if metadata changed (not just timestamp)
+            for file_path, entity in entity_map.items():
+                if file_path not in changed_files and entity in changed_entities:
+                    # Content didn't change, but check if metadata did
+                    previous_entity = self._ohc_state.get_entity(
+                        entity.entity_id)
+
+                    if previous_entity and (
+                        entity.friendly_name != previous_entity.friendly_name or
+                        entity.state != previous_entity.state or
+                        entity.is_deleted != previous_entity.is_deleted
+                    ):
+                        # Real metadata changes - include in the commit
+                        logger.info("Metadata changed (not just timestamp) for %s - adding to commit",
+                                    entity.entity_id)
+                        changed_files[file_path] = files_map[file_path]
+                        final_changed_entities.append(entity)
+                    else:
+                        # Only timestamp changed - don't include in commit
+                        logger.debug(
+                            "Only timestamp changed for %s - not adding to commit", entity.entity_id)
+
+            return changed_files, final_changed_entities
 
         except Exception as e:
-            log_error(logger, "Error checking content changes", e)
+            log_error(logger, "Error checking content changes using SHA", e)
             return None
 
     async def _commit_changes(
