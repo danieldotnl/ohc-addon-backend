@@ -126,7 +126,7 @@ class SyncManager:
 
             # If nothing changed, we're done
             if not (updated or inserted or deleted):
-                logger.info("No entities changed, skipping GitHub commit")
+                logger.info("Synced. No entities to update.")
                 return
             logger.info(
                 "Processed entity changes: %d updated, %d inserted, %d deleted",
@@ -203,6 +203,23 @@ class SyncManager:
             metadata_updated, inserted, deleted = self._identify_metadata_changes(
                 state_copy, ha_entities)
 
+            # Debug log the entities that have changed
+            if metadata_updated:
+                logger.debug("Entities with metadata changes: %s",
+                             [e.entity_id for e in metadata_updated])
+            if inserted:
+                logger.debug("New entities: %s",
+                             [e.entity_id for e in inserted])
+            if deleted:
+                logger.debug("Deleted entities: %s",
+                             [e.entity_id for e in deleted])
+
+            # Early return if no metadata changes
+            if not (metadata_updated or inserted or deleted):
+                logger.debug(
+                    "No metadata changes detected, skipping content checks")
+                return {}, [], [], []
+
             # Prepare files and collect entities with real changes
             files = {}
             updated = []
@@ -210,6 +227,8 @@ class SyncManager:
             # Process metadata changes in parallel
             entities_to_process = metadata_updated + inserted
             if entities_to_process:
+                logger.debug("Fetching content for %d changed entities",
+                             len(entities_to_process))
                 processed_results = await self.fetch_entity_contents_parallel(entities_to_process)
 
                 for entity, content in processed_results:
