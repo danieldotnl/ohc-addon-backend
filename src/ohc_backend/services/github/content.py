@@ -114,7 +114,12 @@ class GitHubContentManager:
         logger.debug("Successfully updated branch %s", branch)
         return ref
 
-    async def commit_files(self, request: CommitFilesRequest) -> GitCommit:
+    async def commit_files(
+        self,
+        request: CommitFilesRequest,
+        ref: GitReference = None,
+        tree: GitTree = None
+    ) -> GitCommit:
         """Commit multiple files to a branch."""
         logger.debug(
             "Starting commit of %d files to branch: %s",
@@ -122,8 +127,14 @@ class GitHubContentManager:
             request.branch,
         )
         try:
-            current_ref = await self.get_branch_reference(request.branch)
-            current_tree = await self.get_tree(current_ref.object["sha"])
+            if ref is None or tree is None:
+                # Only fetch if not provided
+                current_ref = await self.get_branch_reference(request.branch)
+                current_tree = await self.get_tree(current_ref.object["sha"])
+            else:
+                # Use provided ref and tree
+                current_ref = ref
+                current_tree = tree
 
             tree_items = []
             if request.update_only:
@@ -187,7 +198,7 @@ class GitHubContentManager:
                 changed_files[path] = content
 
         logger.debug("Found %d changed files", len(changed_files))
-        return changed_files
+        return changed_files, current_ref, current_tree
 
     async def commit_changed_files(
         self,
@@ -196,7 +207,8 @@ class GitHubContentManager:
         branch: str = "main",
     ) -> GitCommit | None:
         """Commit only files that have actually changed."""
-        changed_files = await self.get_changed_files(files, branch)
+        result = await self.get_changed_files(files, branch)
+        changed_files, current_ref, current_tree = result
         logger.debug("Changed files: %s", list(changed_files.keys()))
 
         if not changed_files:
@@ -210,7 +222,7 @@ class GitHubContentManager:
             update_only=True,
         )
 
-        return await self.commit_files(request)
+        return await self.commit_files(request, current_ref, current_tree)
 
     async def get_file_contents(self, path: str) -> str | None:
         """Fetch a file from the repository if it exists."""
