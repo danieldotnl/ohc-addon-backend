@@ -109,7 +109,7 @@ class SyncManager:
     async def run(self) -> None:
         """Run the sync process with improved error handling."""
         try:
-            logger.info("Start syncing changes...")
+            logger.debug("Start syncing changes...")
 
             # Phase 1: Fetch entities and identify changes
             result = await self._fetch_entities_and_prepare_state()
@@ -122,13 +122,16 @@ class SyncManager:
             result = await self._process_changes(ha_entities, state_copy)
             if result is None:
                 return  # Error occurred during processing
-
             files, updated, inserted, deleted = result
 
             # If nothing changed, we're done
             if not (updated or inserted or deleted):
                 logger.info("No entities changed, skipping GitHub commit")
                 return
+            logger.info(
+                "Processed entity changes: %d updated, %d inserted, %d deleted",
+                len(updated), len(inserted), len(deleted)
+            )
 
             # Phase 3: Commit changes to GitHub
             success = await self._commit_changes(
@@ -150,19 +153,19 @@ class SyncManager:
         """Fetch entities from Home Assistant and prepare state copy."""
         try:
             ha_entities = await self.ha_service.get_all_automations_and_scripts()
-            logger.info("Retrieved %d entities from Home Assistant",
-                        len(ha_entities))
+            logger.debug("Retrieved %d entities from Home Assistant",
+                         len(ha_entities))
 
             # Create a deep copy of ohc_state for modifications
             state_copy = OHCState()
             for entity in self._ohc_state.get_entities():
                 state_copy.upsert(copy.deepcopy(entity))
 
-            return ha_entities, state_copy
-
         except HomeAssistantError as e:
             log_error(logger, "Failed to fetch entities from Home Assistant", e)
             return None
+        else:
+            return ha_entities, state_copy
 
     async def fetch_entity_contents_parallel(self, entities: list[HAEntity]) -> list[tuple[HAEntity, str]]:
         """Fetch content for multiple entities in parallel with controlled concurrency."""
@@ -227,19 +230,14 @@ class SyncManager:
             # Only include state file if there are actual entity changes to commit
             if updated or inserted or deleted:
                 files[self.sync_config.state_file] = state_copy.to_json()
-                logger.info(
+                logger.debug(
                     "Prepared %d files for commit including state file", len(files))
             elif files:  # We have content changes but no entity metadata changes
                 files[self.sync_config.state_file] = state_copy.to_json()
-                logger.info(
+                logger.debug(
                     "Prepared %d files with content changes", len(files))
             else:
-                logger.info("No changes detected, no files to commit")
-
-            logger.info(
-                "Processed entity changes: %d updated, %d inserted, %d deleted",
-                len(updated), len(inserted), len(deleted)
-            )
+                logger.debug("No changes detected, no files to commit")
 
             return files, updated, inserted, deleted
 
@@ -371,7 +369,7 @@ class SyncManager:
 
             if commit_result:
                 logger.info(
-                    "Successfully committed changes to GitHub: %s", commit_result.sha)
+                    "Successfully committed entities to GitHub: %s", list(files.keys()))
                 return True
 
         except GitHubAuthError as e:

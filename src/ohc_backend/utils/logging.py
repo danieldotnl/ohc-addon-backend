@@ -28,7 +28,17 @@ class RequestIDLogFilter(logging.Filter):
 
 def configure_logging() -> None:
     """Configure application logging."""
-    is_dev = os.getenv("ENVIRONMENT") == "dev"
+    # Map string log levels to logging constants
+    log_level_map = {
+        "debug": logging.DEBUG,
+        "info": logging.INFO,
+        "warning": logging.WARNING,
+        "error": logging.ERROR
+    }
+
+    # Get log level from environment variable, default to INFO if not set or invalid
+    log_level_str = os.getenv("LOG_LEVEL", "info").lower()
+    log_level = log_level_map.get(log_level_str, logging.INFO)
 
     # Create formatter with request ID
     log_format = "%(asctime)s [%(levelname)8s] [%(request_id)s] %(name)s: %(message)s"
@@ -36,7 +46,7 @@ def configure_logging() -> None:
 
     # Configure root logger
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG if is_dev else logging.INFO)
+    root_logger.setLevel(log_level)
 
     # Clear existing handlers and add our own
     root_logger.handlers = []
