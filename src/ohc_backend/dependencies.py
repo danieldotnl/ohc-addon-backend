@@ -31,11 +31,11 @@ class DependencyManager:
 
     async def cleanup(self) -> None:
         """Cleanup dependency resources."""
-        if self._github_client:
-            await self._github_client.close()
-
         if self._sync_manager:
             await self._sync_manager.stop()
+
+        if self._github_client:
+            await self._github_client.close()
 
         if self._home_assistant_service:
             await self._home_assistant_service.close()
