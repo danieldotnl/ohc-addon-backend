@@ -143,6 +143,10 @@ class SyncManager:
             # If nothing changed, we're done
             if not (updated or inserted or deleted):
                 logger.info("No entities changed, skipping GitHub commit")
+                # Still update the internal state to capture last_changed changes
+                logger.debug("Updating internal state with %d entities (no content changes)",
+                             len(state_copy.get_entities()))
+                self._ohc_state = state_copy
                 return
 
             logger.info(
@@ -161,6 +165,8 @@ class SyncManager:
 
             if success:
                 # Update the original state only on successful commit
+                logger.debug("Updating internal state with %d entities",
+                             len(state_copy.get_entities()))
                 self._ohc_state = state_copy
                 logger.info("Sync completed successfully")
 
@@ -251,7 +257,7 @@ class SyncManager:
 
             # Step 2: Check content changes and filter timestamp-only updates
             content_changes = await self._check_content_changes(
-                changed_entities, inserted_entities)
+                changed_entities, inserted_entities, state_copy)
             if content_changes is None:
                 return None
 
@@ -345,6 +351,7 @@ class SyncManager:
         self,
         changed_entities: list[HAEntity],
         inserted_entities: list[HAEntity],
+        state_copy: OHCState
     ) -> tuple[dict[str, str], list[HAEntity]] | None:
         """Check content changes and filter out timestamp-only updates."""
         try:
@@ -413,6 +420,8 @@ class SyncManager:
                             # Only timestamp changed - don't include in commit
                             logger.debug(
                                 "Only timestamp changed for %s - not adding to commit", entity.entity_id)
+                            # Always update the state even for timestamp-only changes
+                            state_copy.update(entity)
 
                 except GitHubNotFoundError:
                     # File doesn't exist in GitHub
