@@ -335,7 +335,7 @@ class SyncManager:
                     state_copy.update(entity)
                     deleted_entities.append(entity)
 
-            logger.info(
+            logger.debug(
                 "Potential changes: %d changed, %d new, %d deleted",
                 len(changed_entities), len(
                     inserted_entities), len(deleted_entities)
