@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  id-token: write
   packages: write
 
 jobs:
@@ -39,7 +39,7 @@ jobs:
         run: uv build
 
       - name: Publish to GitHub Packages
-        run: uv publish
+        run: uv publish -v dist/
 
       - name: Add 'latest' alias for dev builds
         if: startsWith(env.VERSION, 'dev-')
