@@ -39,7 +39,7 @@ jobs:
         run: uv build
 
       - name: Publish to GitHub Packages
-        run: uv publish -v dist/
+        run: uv publish -v dist/*
 
       - name: Add 'latest' alias for dev builds
         if: startsWith(env.VERSION, 'dev-')
