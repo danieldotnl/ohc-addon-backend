@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling", "hatch-vcs"]
+requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
 name = "OHC_Backend"
-dynamic = ["version"]
+version = "0.0.0" # Placeholder, dynamically set by env var
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -21,36 +21,18 @@ dev = ["pre-commit>=4.1.0", "pytest-asyncio>=0.25.3", "ruff>=0.9.6"]
 [tool.hatch.build.targets.wheel]
 packages = ["src/ohc_backend"]
 
-[tool.hatch.version]
-source = "vcs"
-
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_default_fixture_loop_scope = "function"
 
-[tool.ruff.lint]
-select = ["ALL"]
-
 [tool.ruff]
 line-length = 120
-ignore = [
-    "ERA001", # Found commented-out code
-    "TRY003", #Avoid specifying long messages outside the exception class
-    "COM812", # Trailing comma interferes with formatter (https://github.com/astral-sh/ruff/issues/9216)
-    "EM102",  # Exception must not use an f-string literal, assign to variable first
-    "EM101",  # Exception must not use an f-string literal, assign to variable first
-]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = ["ERA001", "TRY003", "COM812", "EM102", "EM101"]
 
 [tool.ruff.lint.extend-per-file-ignores]
-"tests/**/*.py" = [
-    # at least this three should be fine in tests:
-    "S101", # asserts allowed in tests...
-    "ARG",  # Unused function args -> fixtures nevertheless are functionally relevant...
-    "FBT",  # Don't care about booleans as positional arguments in tests, e.g. via @pytest.mark.parametrize()
-    # The below are debateable
-    "PLR2004", # Magic value used in comparison, ...
-    "S311",    # Standard pseudo-random generators are not suitable for cryptographic purposes
-
-]
+"tests/**/*.py" = ["S101", "ARG", "FBT", "PLR2004", "S311"]

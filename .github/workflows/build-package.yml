@@ -1,15 +1,14 @@
-name: Build Python Package
+name: Build and Publish Python Package
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
-  pull_request:
-    branches: [main]
+    tags: ["*"]
   workflow_dispatch:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
   build:
@@ -17,27 +16,38 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Python # version is read from .python-version file
+      - name: Set up Python (version from .python-version file)
         uses: actions/setup-python@v5
 
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Build package
+      - name: Determine version
+        id: version
         run: |
-          uv build
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          elif [[ $GITHUB_REF == refs/heads/main ]]; then
+            VERSION="dev-$(date +'%Y%m%d%H%M%S')"
+          else
+            VERSION="dev-pr-$(date +'%Y%m%d%H%M%S')"
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          echo "Package version: $VERSION"
 
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: ohc-backend-package
-          path: dist/
+      - name: Build package
+        run: uv build
 
-      # If this is a tag, publish to GitHub releases
-      - name: Create Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v1
-        with:
-          files: |
-            dist/*.whl
-            dist/*.tar.gz
+      - name: Publish to GitHub Packages
+        run: uv publish --repository github
+        env:
+          UV_PYPI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add 'latest' alias for dev builds
+        if: startsWith(env.VERSION, 'dev-')
+        run: |
+          echo "Tagging 'latest' for version $VERSION"
+          gh api --method POST /user/packages/container/OHC_Backend/versions \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -F "metadata[container_metadata][tag]=latest"
