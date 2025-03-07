@@ -40,8 +40,6 @@ jobs:
 
       - name: Publish to GitHub Packages
         run: uv publish
-        env:
-          UV_PYPI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Add 'latest' alias for dev builds
         if: startsWith(env.VERSION, 'dev-')
