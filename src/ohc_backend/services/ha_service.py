@@ -53,12 +53,15 @@ class HomeAssistantResourceNotFoundError(HomeAssistantError):
 class HomeAssistantService:
     """Service to interact with Home Assistant."""
 
-    def __init__(self, server_url: str, access_token: str, session: aiohttp.ClientSession | None = None) -> None:
+    def __init__(self, server_url: str, access_token: str, session: aiohttp.ClientSession | None = None,
+                 timeout: aiohttp.ClientTimeout | None = None) -> None:
         """Initialize the service."""
         self.server_url = server_url
         self._base_url = f"{server_url}/api"
+        self.timeout = timeout or aiohttp.ClientTimeout(total=15)
         self.session = session or aiohttp.ClientSession(
-            headers={"Authorization": f"Bearer {access_token}"})
+            headers={"Authorization": f"Bearer {access_token}"},
+            timeout=self.timeout)
 
         logger.info(
             "Home Assistant Service initialized with server_url: %s", server_url)

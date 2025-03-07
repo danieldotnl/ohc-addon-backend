@@ -51,8 +51,8 @@ class GithubConfig(BaseModel):
     )
     client_id: str = Field(
         default="Ov23licd0c0KujXwABCn",
-        env="GH_CLIENT_ID",
         description="GitHub OAuth client ID",
+        json_schema_extra={"env": "GH_CLIENT_ID"}
     )
     scope: str = Field(
         default="repo user:email",
@@ -66,7 +66,7 @@ class SyncManagerConfig(BaseModel):
     interval: int = Field(
         default=300,
         description="Interval in seconds for syncing with Home Assistant",
-        env="HA_SYNC_INTERVAL",
+        json_schema_extra={"env": "HA_SYNC_INTERVAL"},
     )
     state_file: str = Field(
         default=".ohcstate/ohc_state.json",
@@ -75,7 +75,7 @@ class SyncManagerConfig(BaseModel):
     ha_max_parallel_requests: int = Field(
         default=10,
         description="Maximum number of parallel requests to Home Assistant",
-        env="HA_MAX_PARALLEL_REQUESTS",
+        json_schema_extra={"env": "HA_MAX_PARALLEL_REQUESTS"},
     )
 
 
@@ -84,18 +84,18 @@ class HAConfig(BaseModel):
 
     server: str = Field(
         default="http://supervisor.core",
-        env="HA_SERVER",
         description="Home Assistant server URL",
+        json_schema_extra={"env": "HA_SERVER"},
     )
     token: str | None = Field(
         default=None,
-        env="SUPERVISOR_TOKEN",
         description="Home Assistant authentication token",
+        json_schema_extra={"env": "SUPERVISOR_TOKEN"},
     )
     data_folder: str = Field(
         default="/data",
-        env="HA_DATA_FOLDER",
         description="Path to data folder",
+        json_schema_extra={"env": "HA_DATA_FOLDER"},
     )
 
 
