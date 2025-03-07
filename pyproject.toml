@@ -15,6 +15,9 @@ dependencies = [
     "uvicorn>=0.34.0",
 ]
 
+[tool.uv]
+repository = "https://github.com/danieldotnl/ohc-addon-backend/packages"
+
 [dependency-groups]
 dev = ["pre-commit>=4.1.0", "pytest-asyncio>=0.25.3", "ruff>=0.9.6"]
 

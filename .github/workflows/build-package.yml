@@ -39,7 +39,7 @@ jobs:
         run: uv build
 
       - name: Publish to GitHub Packages
-        run: uv publish --repository github
+        run: uv publish --directory dist/
         env:
           UV_PYPI_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
