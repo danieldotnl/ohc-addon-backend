@@ -1,8 +1,9 @@
 {
-  "name": "FastAPI + SvelteKit",
+  "name": "Our Home Connected | FastAPI Backend",
   "image": "mcr.microsoft.com/devcontainers/python:3.13",
   "features": {
-    "ghcr.io/va-h/devcontainers-features/uv:1": {}
+    "ghcr.io/va-h/devcontainers-features/uv:1": {},
+    "ghcr.io/devcontainers-contrib/features/pre-commit:2": {}
   },
   "customizations": {
     "vscode": {
@@ -21,6 +22,6 @@
     }
   },
   "forwardPorts": [8000],
-  "postCreateCommand": "",
+  "postStartCommand": "pre-commit install",
   "runArgs": ["--env-file", ".devcontainer/.env"]
 }
