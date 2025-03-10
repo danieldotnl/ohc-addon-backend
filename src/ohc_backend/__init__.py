@@ -1,2 +1,3 @@
-"""Empty initi for app."""
-VERSION = "1.2.2"
+"""Empty init for app."""
+# Bump by running `hatch run bump (major|minor|patch|beta|alfa)`
+VERSION = "1.2.4"

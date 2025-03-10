@@ -35,7 +35,10 @@ installer = "uv"
 [tool.hatch.envs.default.scripts]
 bump = """
 hatch version {args}
+git add src/ohc_backend/__init__.py
+git commit -m "Bump version to $(hatch version)"
 git tag v$(hatch version)
+git push origin main
 git push origin v$(hatch version)
 """
 
