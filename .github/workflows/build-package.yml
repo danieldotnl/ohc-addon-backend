@@ -40,6 +40,7 @@ jobs:
           if [[ "${{ inputs.bump_major }}" == "true" ]]; then
             MAJOR_VERSION=$((CURRENT_MAJOR_VERSION + 1))
             BUILD_NUMBER=0
+            NEW_VERSION="${MAJOR_VERSION}.${BUILD_NUMBER}"
             echo "is_major_bump=true" >> $GITHUB_OUTPUT
           else
             MAJOR_VERSION=$CURRENT_MAJOR_VERSION
@@ -51,11 +52,12 @@ jobs:
               # Count commits since the major version tag
               BUILD_NUMBER=$(git rev-list --count HEAD ^$LATEST_MAJOR_TAG)
             fi
+            
+            # Add commit hash for uniqueness
+            SHORT_HASH=$(git rev-parse --short HEAD)
+            NEW_VERSION="${MAJOR_VERSION}.${BUILD_NUMBER}+${SHORT_HASH}"
             echo "is_major_bump=false" >> $GITHUB_OUTPUT
           fi
-
-          # New version
-          NEW_VERSION="${MAJOR_VERSION}.${BUILD_NUMBER}"
 
           echo "Package version calculated as $NEW_VERSION"
           echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
