@@ -16,14 +16,28 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pre-commit>=4.1.0", "pytest-asyncio>=0.25.3", "ruff>=0.9.6"]
+dev = [
+    "hatch>=1.14.0",
+    "pre-commit>=4.1.0",
+    "pytest-asyncio>=0.25.3",
+    "ruff>=0.9.6",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ohc_backend"]
 
 [tool.hatch.version]
-source = "env"
-variable = "PACKAGE_VERSION"
+path = "src/ohc_backend/__init__.py"
+
+[tool.hatch.envs.default]
+installer = "uv"
+
+[tool.hatch.envs.default.scripts]
+bump = """
+hatch version {args}
+git tag v$(hatch version)
+git push origin v$(hatch version)
+"""
 
 
 [tool.pytest.ini_options]
