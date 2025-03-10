@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "OHC_Backend"
-version = "0.0.0" # Placeholder, dynamically set by env var
+dynamic = ["version"] # Placeholder, dynamically set by env var
 description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -20,6 +20,11 @@ dev = ["pre-commit>=4.1.0", "pytest-asyncio>=0.25.3", "ruff>=0.9.6"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/ohc_backend"]
+
+[tool.hatch.version]
+source = "env"
+variable = "PACKAGE_VERSION"
+
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

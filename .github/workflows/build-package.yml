@@ -3,8 +3,13 @@ name: Build and Publish Python Package
 on:
   push:
     branches: [main]
-    tags: ["*"]
   workflow_dispatch:
+    inputs:
+      bump_major:
+        description: "Bump major version"
+        required: false
+        default: "false"
+        type: boolean
 
 permissions:
   id-token: write
@@ -22,18 +27,39 @@ jobs:
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@v5
 
-      - name: Determine version
-        id: version
+      - name: Calculate version
+        id: calc_version
         run: |
-          if [[ $GITHUB_REF == refs/tags/* ]]; then
-            VERSION=${GITHUB_REF#refs/tags/}
-          elif [[ $GITHUB_REF == refs/heads/main ]]; then
-            VERSION="dev-$(date +'%Y%m%d%H%M%S')"
+          # Get the current version from major version tags
+          LATEST_MAJOR_TAG=$(git tag -l "v*.0" | sort -V | tail -n1 || echo "v0.0")
+          CURRENT_MAJOR_VERSION=${LATEST_MAJOR_TAG#v}
+          CURRENT_MAJOR_VERSION=${CURRENT_MAJOR_VERSION%%.*}
+
+          # Check if we should bump major version
+          if [[ "${{ inputs.bump_major }}" == "true" ]]; then
+            MAJOR_VERSION=$((CURRENT_MAJOR_VERSION + 1))
+            BUILD_NUMBER=0
+            echo "is_major_bump=true" >> $GITHUB_OUTPUT
           else
-            VERSION="dev-pr-$(date +'%Y%m%d%H%M%S')"
+            MAJOR_VERSION=$CURRENT_MAJOR_VERSION
+            # Count commits since the major version tag
+            if [[ -z "$LATEST_MAJOR_TAG" || "$LATEST_MAJOR_TAG" == "v0.0" ]]; then
+              # No major version tag yet
+              BUILD_NUMBER=$(git rev-list --count HEAD)
+            else
+              # Count commits since the major version tag
+              BUILD_NUMBER=$(git rev-list --count HEAD ^$LATEST_MAJOR_TAG)
+            fi
+            echo "is_major_bump=false" >> $GITHUB_OUTPUT
           fi
-          echo "VERSION=$VERSION" >> $GITHUB_ENV
-          echo "Package version: $VERSION"
+
+          # New version
+          NEW_VERSION="${MAJOR_VERSION}.${BUILD_NUMBER}"
+
+          echo "Package version calculated as $NEW_VERSION"
+          echo "version=$NEW_VERSION" >> $GITHUB_OUTPUT
+          echo "major_version=$MAJOR_VERSION" >> $GITHUB_OUTPUT
+          echo "PACKAGE_VERSION=$NEW_VERSION" >> $GITHUB_ENV
 
       - name: Update version in pyproject.toml
         run: |
@@ -46,3 +72,17 @@ jobs:
 
       - name: Publish to PyPi
         run: uv publish -v dist/*
+
+      # Only create a tag and release for major version bumps
+      - name: Create release for major version
+        if: ${{ steps.calc_version.outputs.is_major_bump == 'true' }}
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: "v${{ steps.calc_version.outputs.version }}"
+          name: "Major Version ${{ steps.calc_version.outputs.major_version }}"
+          body: |
+            Major version ${{ steps.calc_version.outputs.major_version }} release
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
