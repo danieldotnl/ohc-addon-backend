@@ -1,11 +1,12 @@
 """Application error classes."""
-from enum import Enum
+
+from enum import StrEnum
 from typing import Any
 
 from fastapi import status
 
 
-class ErrorCode(Enum):
+class ErrorCode(StrEnum):
     """Application error codes."""
 
     AUTHENTICATION_FAILED = "auth_failed"
@@ -25,7 +26,7 @@ class AppError(Exception):
         message: str,
         status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR,
         error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
-        details: dict[str, Any] | None = None
+        details: dict[str, Any] | None = None,
     ) -> None:
         """Initialize the error."""
         self.message = message
@@ -36,11 +37,7 @@ class AppError(Exception):
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to dict for API responses."""
-        return {
-            "error_code": self.error_code.value,
-            "message": self.message,
-            "details": self.details
-        }
+        return {"error_code": self.error_code.value, "message": self.message, "details": self.details}
 
 
 class AuthenticationError(AppError):
@@ -52,5 +49,5 @@ class AuthenticationError(AppError):
             message,
             status_code=status.HTTP_401_UNAUTHORIZED,
             error_code=ErrorCode.AUTHENTICATION_FAILED,
-            details=details
+            details=details,
         )
