@@ -2,7 +2,7 @@
 
 import uuid
 from collections.abc import Callable
-from enum import IntEnum, auto
+from enum import IntEnum, StrEnum, auto
 
 from ohc_backend.errors import AppError, ErrorCode
 
@@ -15,22 +15,30 @@ class HealthState(IntEnum):
     ERROR = auto()
 
 
+class Service(StrEnum):
+    """Enum of services that can set their health state."""
+
+    GITHUB = "Github Service"
+    HOMEASSISTANT = "Home Assistant Service"
+    SYNCMANAGER = "Sync Manager"
+
+
 class HealthStatus:
     """Class for managing health status of services."""
 
     def __init__(self) -> None:
         """Initialize an empty health status tracker."""
-        self._services: dict[str, HealthState] = {}
+        self._services: dict[Service, HealthState] = {}
         self._error_info: dict[str, tuple[ErrorCode, str]] = {}
         self._subscribers: dict[str, Callable[[HealthState, HealthState], None]] = {}
         self._current_state: HealthState = HealthState.UNINITIALIZED
 
-    def get_state(self, service_name: str | None = None) -> HealthState:
+    def get_state(self, service: str | None = None) -> HealthState:
         """Get state of a specific service or the overall state."""
-        if service_name is not None:
-            if service_name not in self._services:
-                raise KeyError(f"Service '{service_name}' not found")
-            return self._services[service_name]
+        if service is not None:
+            if service not in self._services:
+                raise KeyError(f"Service '{service}' not found")
+            return self._services[service]
 
         if not self._services:
             return HealthState.UNINITIALIZED
@@ -44,7 +52,7 @@ class HealthStatus:
 
     def set_service_state(
         self,
-        service_name: str,
+        service: Service,
         state: HealthState,
         error_code: ErrorCode | None = None,
         description: str | None = None,
@@ -53,16 +61,16 @@ class HealthStatus:
         old_overall_state = self.get_state()
 
         # Update service state
-        self._services[service_name] = state
+        self._services[service] = state
 
         # Handle error information
         if state == HealthState.ERROR:
             if error_code is None or description is None:
                 raise ValueError("Error code and description must be provided when setting ERROR state")
-            self._error_info[service_name] = (error_code, description)
-        elif service_name in self._error_info:
+            self._error_info[service] = (error_code, description)
+        elif service in self._error_info:
             # Clear error info if state is no longer ERROR
-            del self._error_info[service_name]
+            del self._error_info[service]
 
         # Check if overall state changed and notify subscribers if needed
         new_overall_state = self.get_state()
@@ -74,21 +82,21 @@ class HealthStatus:
         """Get a list of all registered services."""
         return list(self._services.keys())
 
-    def get_service_error(self, service_name: str) -> tuple[ErrorCode, str]:
+    def get_service_error(self, service: str) -> tuple[ErrorCode, str]:
         """Get error information for a service."""
-        if service_name not in self._error_info:
-            raise KeyError(f"No error information for service '{service_name}'")
-        return self._error_info[service_name]
+        if service not in self._error_info:
+            raise KeyError(f"No error information for service '{service}'")
+        return self._error_info[service]
 
-    def remove_service(self, service_name: str) -> None:
+    def remove_service(self, service: str) -> None:
         """Remove a service from health tracking."""
         old_overall_state = self.get_state()
 
-        if service_name in self._services:
-            del self._services[service_name]
+        if service in self._services:
+            del self._services[service]
 
-        if service_name in self._error_info:
-            del self._error_info[service_name]
+        if service in self._error_info:
+            del self._error_info[service]
 
         # Check if overall state changed and notify subscribers if needed
         new_overall_state = self.get_state()
@@ -98,12 +106,12 @@ class HealthStatus:
 
     def raise_on_error(self) -> None:
         """Raise an AppError if any service is in ERROR state."""
-        for service_name, state in self._services.items():
+        for service, state in self._services.items():
             if state == HealthState.ERROR:
-                error_code, description = self._error_info[service_name]
-                message = f"Service '{service_name}' in ERROR state: {error_code.value} - {description}"
+                error_code, description = self._error_info[service]
+                message = f"Service '{service}' in ERROR state: {error_code.value} - {description}"
                 details = {
-                    "service_name": service_name,
+                    "service": service,
                     "description": description,
                 }
 
