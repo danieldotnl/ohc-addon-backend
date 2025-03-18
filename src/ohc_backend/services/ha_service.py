@@ -1,12 +1,16 @@
 """Home Assistant Service."""
 
 import logging
+from typing import cast
+from urllib.parse import urlparse
 
 import aiohttp
 import yaml
 from fastapi import status
 
 from ohc_backend.models.ha_entity import Automation, HAEntity, Script
+from ohc_backend.orchestrator import OHCBaseService
+from ohc_backend.services.settings import HAConfig, OHCBaseConfig
 from ohc_backend.utils.logging import log_error
 
 logger = logging.getLogger(__name__)
@@ -50,37 +54,56 @@ class HomeAssistantResourceNotFoundError(HomeAssistantError):
         self.resource_id = resource_id
 
 
-class HomeAssistantService:
+class HomeAssistantService(OHCBaseService):
     """Service to interact with Home Assistant."""
 
     def __init__(
         self,
-        server_url: str,
-        access_token: str,
-        session: aiohttp.ClientSession | None = None,
-        timeout: aiohttp.ClientTimeout | None = None,
     ) -> None:
         """Initialize the service."""
-        self.server_url = server_url
-        self._base_url = f"{server_url}/api"
-        self.timeout = timeout or aiohttp.ClientTimeout(total=15)
-        self.session = session
-        self.access_token = access_token
+        self._base_url: str | None = None
+        self.timeout: aiohttp.ClientTimeout | None = None
+        self.session: aiohttp.ClientSession | None = None
+        self.access_token: str | None = None
 
-        logger.info("Home Assistant Service initialized with server_url: %s", server_url)
-
-    async def start(self) -> bool:
+    async def _start(self) -> None:
         """Start the service."""
+        if self.access_token is None or self.access_token == "":
+            raise ValueError("Access token is required when starting the Home Assistant service.")
+        if not self.is_valid_url(self._base_url):
+            raise ValueError("A valid base url is required when starting the Home Assistant service.")
         if not self.session:
             self.session = aiohttp.ClientSession(
                 headers={"Authorization": f"Bearer {self.access_token}"}, timeout=self.timeout
             )
 
-    async def close(self) -> None:
+    def configure(self, config: OHCBaseConfig) -> None:
+        """Configure home assistant service."""
+        ha_config = cast(HAConfig, config)
+        self._base_url = f"{ha_config.server}/api"
+        self.access_token = ha_config.token
+        self.timeout = aiohttp.ClientTimeout(total=15)
+
+        logger.debug("Home Assistant Service configured with server_url: %s", ha_config.server)
+
+    def is_valid_url(self, url: str | None) -> bool:
+        """Check if the provided string is a valid URL."""
+        if url is None:
+            return False
+
+        try:
+            result = urlparse(url.strip())
+            # Check for scheme (http, https) and netloc (domain)
+            return all([result.scheme, result.netloc])
+        except ValueError:
+            return False
+
+    async def _stop(self) -> None:
         """Close the service."""
         if self.session and not self.session.closed:
             await self.session.close()
             self.session = None
+        logger.debug("Home Assistant service stopped.")
 
     async def make_request(self, method: str, url: str, **kwargs: dict) -> dict | str | None:
         """Make an HTTP request and return the JSON response with improved error handling."""

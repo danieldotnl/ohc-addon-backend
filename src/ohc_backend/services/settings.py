@@ -11,6 +11,8 @@ from typing import Any, Union, get_args, get_origin
 import aiofiles
 from pydantic import BaseModel, Field
 
+from ohc_backend.base_types import OHCBaseConfig, OHCBaseService, OHCServiceName
+
 logger = logging.getLogger(__name__)
 
 
@@ -31,7 +33,7 @@ class GithubRepositoryRequestConfig(BaseModel):
     )
 
 
-class GithubConfig(BaseModel):
+class GithubConfig(OHCBaseConfig):
     """GitHub configuration."""
 
     repo_request: GithubRepositoryRequestConfig = Field(
@@ -50,9 +52,7 @@ class GithubConfig(BaseModel):
         description="GitHub API URL",
     )
     client_id: str = Field(
-        default="Ov23licd0c0KujXwABCn",
-        description="GitHub OAuth client ID",
-        json_schema_extra={"env": "GH_CLIENT_ID"}
+        default="Ov23licd0c0KujXwABCn", description="GitHub OAuth client ID", json_schema_extra={"env": "GH_CLIENT_ID"}
     )
     scope: str = Field(
         default="repo user:email",
@@ -60,7 +60,7 @@ class GithubConfig(BaseModel):
     )
 
 
-class SyncManagerConfig(BaseModel):
+class SyncManagerConfig(OHCBaseConfig):
     """Sync configuration."""
 
     interval: int = Field(
@@ -79,7 +79,7 @@ class SyncManagerConfig(BaseModel):
     )
 
 
-class HAConfig(BaseModel):
+class HAConfig(OHCBaseConfig):
     """Home Assistant configuration."""
 
     server: str = Field(
@@ -116,7 +116,7 @@ class AppSettings(BaseModel):
     )
 
 
-class Settings:
+class Settings(OHCBaseService):
     """Settings manager for the application."""
 
     def __init__(self, file_path: str) -> None:
@@ -124,9 +124,30 @@ class Settings:
         self._file_path = Path(file_path)
         self._settings = AppSettings()
 
-    async def async_init(self) -> None:
+    async def _start(self) -> None:
         """Initialize settings."""
         await self._load()
+
+    async def _stop(self) -> None:
+        """Stop settings service."""
+
+    def get_service_config(self, name: OHCServiceName) -> OHCBaseConfig:
+        """Get config for service."""
+        match name:
+            case OHCServiceName.HOMEASSISTANT:
+                if self._settings.ha is None:
+                    raise ValueError(f"Configuration for service '{name}' is not set")
+                return self._settings.ha
+            case OHCServiceName.GITHUB:
+                if self._settings.gh is None:
+                    raise ValueError(f"Configuration for service '{name}' is not set")
+                return self._settings.gh
+            case OHCServiceName.SYNC_MANAGER:
+                if self._settings.sync is None:
+                    raise ValueError(f"Configuration for service '{name}' is not set")
+                return self._settings.sync
+            case _:
+                raise ValueError(f"Unknown service: {name}")
 
     async def _load(self) -> None:
         """Load settings from file and environment variables."""
@@ -153,19 +174,16 @@ class Settings:
             extra = getattr(field, "json_schema_extra", {}) or {}
             if (env_var := extra.get("env")) and (env_value := os.environ.get(env_var)):
                 try:
-                    parsed_value = self._parse_value(
-                        env_value, field.annotation)
+                    parsed_value = self._parse_value(env_value, field.annotation)
                     setattr(model, field_name, parsed_value)
                 except ValueError:
-                    logger.exception(
-                        "Error parsing environment variable %s", env_var)
+                    logger.exception("Error parsing environment variable %s", env_var)
 
             # Handle nested models
             if isinstance(value, BaseModel):
                 self._load_env_vars(value)
             elif value is None and issubclass(get_origin(field.annotation) or field.annotation, BaseModel):
-                model_class = get_args(field.annotation)[0] if get_origin(
-                    field.annotation) else field.annotation
+                model_class = get_args(field.annotation)[0] if get_origin(field.annotation) else field.annotation
                 new_model = model_class()
                 self._load_env_vars(new_model)
                 setattr(model, field_name, new_model)
