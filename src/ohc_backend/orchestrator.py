@@ -4,13 +4,16 @@ from __future__ import annotations
 
 import logging
 from enum import StrEnum
-from typing import ClassVar, cast
+from typing import TYPE_CHECKING, ClassVar, cast
 
 from pydantic import BaseModel
 
 from ohc_backend.base_types import OHCBaseConfig, OHCBaseService, OHCServiceName
 from ohc_backend.services.settings import Settings
 from ohc_backend.utils.logging import log_error
+
+if TYPE_CHECKING:
+    from ohc_backend.errors import AppError
 
 logger = logging.getLogger(__name__)
 
@@ -22,33 +25,6 @@ class ServiceState(StrEnum):
     STARTED = "STARTED"
     STOPPED = "STOPPED"
     ERROR = "ERROR"
-
-
-class ServiceStartError(Exception):
-    """Exception when services fail to start."""
-
-
-class HealthMessenger:
-    """A lightweight interface to report health to the orchestrator."""
-
-    def __init__(self, orchestrator: ServiceOrchestrator, service: OHCServiceName) -> None:
-        """Initialize the reporter."""
-        self.orchestrator = orchestrator
-        self.service = service
-
-    async def report_health(self, *, is_healthy: bool) -> None:
-        """Report the health of a service to the orchestrator."""
-        await self.orchestrator.set_health(self.service, is_healthy)
-
-
-class OHCServiceStartError(Exception):
-    """Exception raised when a service fails to start."""
-
-    def __init__(self, service_name: str, message: str | None = None) -> None:
-        """Initialize the exception."""
-        self.service_name = service_name
-        self.message = message or f"Failed to start service: {service_name}"
-        super().__init__(self.message)
 
 
 class ServiceInfo(BaseModel):
@@ -68,21 +44,28 @@ class ServiceOrchestrator:
         OHCServiceName.SETTINGS,
         OHCServiceName.HOMEASSISTANT,
         OHCServiceName.GITHUB,
-        OHCServiceName.SYNC_MANAGER,
+        # OHCServiceName.SYNC_MANAGER,
     ]
 
     def __init__(self) -> None:
         """Initialize the Orchestrator with service dependencies."""
         self.services: dict[OHCServiceName, ServiceInfo] = {}
+        self.error: AppError | None = None
 
     def register_service(self, name: OHCServiceName, instance: OHCBaseService, *, requires_config: bool = True) -> None:
         """Register services in orchestrator."""
-        instance.set_health_messenger(HealthMessenger(self, name))
+        instance.report_critical_error_callback = self.on_critical_error
         service = ServiceInfo(instance=instance, require_config=requires_config)
         self.services[name] = service
 
+    def raise_on_error(self) -> None:
+        """Raise an exception if an error has been reported."""
+        if self.error:
+            raise self.error
+
     async def start(self) -> None:
         """Start and configure all registered services."""
+        self.error = None
         try:
             for name in self.STARTUP_SEQUENCE:
                 info = self.get_service_info(name)
@@ -138,9 +121,14 @@ class ServiceOrchestrator:
             return info
         raise ValueError(f"Cannot find service {name}.")
 
-    async def report_error(self, name: OHCServiceName, error_code: str, description: str | None) -> None:
+    async def on_critical_error(self, service: OHCServiceName, error: AppError) -> None:
         """Report a service error."""
-        logger.error("Error with code '%s' reported by service %s: %s", error_code, name, description)
+        logger.error(
+            "Critical error with code '%s' reported by service %s: %s", error.error_code, service, error.message
+        )
+        self.error = error
+        self.services[service].status = ServiceState.ERROR
+        await self.stop_all_services()
 
     async def stop(self) -> None:
         """Cleanup all running services."""

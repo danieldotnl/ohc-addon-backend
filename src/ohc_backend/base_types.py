@@ -1,9 +1,17 @@
 """Base types and classes for OHC services."""
 
+import logging
 from enum import IntEnum, StrEnum, auto
-from typing import Protocol
+from typing import TYPE_CHECKING
 
 from pydantic import BaseModel
+
+from ohc_backend.errors import AppError
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 
 class OHCServiceName(StrEnum):
@@ -24,14 +32,6 @@ class HealthState(IntEnum):
     ERROR = auto()
 
 
-class HealthMessengerProtocol(Protocol):
-    """Protocol for health messenger to avoid circular imports."""
-
-    async def report_health(self, *, is_healthy: bool) -> None:
-        """Report health state."""
-        ...
-
-
 class OHCBaseConfig(BaseModel):
     """Base configuration class."""
 
@@ -41,14 +41,31 @@ class OHCBaseService:
 
     def __init__(self) -> None:
         """Initialize service with default values."""
-        self._health_messenger: HealthMessengerProtocol | None = None
+        self.report_critical_error_callback: Callable[[OHCServiceName, AppError], Awaitable[None]] | None = None
 
     def configure(self, config: OHCBaseConfig) -> None:
         """Configure service with settings. Optionally overwrite."""
 
-    def set_health_messenger(self, messenger: HealthMessengerProtocol) -> None:
-        """Set health messenger."""
-        self._health_messenger = messenger
+    async def report_critical_error(self, error: AppError) -> None:
+        """Report an error to the orchestrator.
+
+        This method should be called by service implementations when they encounter
+        an error they can't handle themselves.
+        """
+        if self.report_critical_error_callback:
+            # Get the service name - you'll need a way to identify which service this is
+            service_name = self.get_service_name()  # Implement this method in your class
+            await self.report_critical_error_callback(service_name, error)
+        else:
+            # Fallback logging if error_report_fn isn't set
+            logging.error("Error occurred but no error_report_fn is available: %s", error.message)
+
+    def get_service_name(self) -> OHCServiceName:
+        """Return the service name for this instance.
+
+        This should be implemented by subclasses to return their specific service name.
+        """
+        raise NotImplementedError("Subclasses must implement get_service_name()")
 
     async def start(self) -> None:
         """Start a service."""
