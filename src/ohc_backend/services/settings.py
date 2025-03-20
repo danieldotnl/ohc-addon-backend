@@ -16,7 +16,7 @@ from ohc_backend.base_types import OHCBaseConfig, OHCBaseService, OHCServiceName
 logger = logging.getLogger(__name__)
 
 
-class GithubRepositoryRequestConfig(BaseModel):
+class GitHubRepoConfig(BaseModel):
     """GitHub repository request configuration."""
 
     name: str = Field(
@@ -36,8 +36,8 @@ class GithubRepositoryRequestConfig(BaseModel):
 class GithubConfig(OHCBaseConfig):
     """GitHub configuration."""
 
-    repo_request: GithubRepositoryRequestConfig = Field(
-        default=GithubRepositoryRequestConfig(),
+    repo_request: GitHubRepoConfig = Field(
+        default=GitHubRepoConfig(),
         description="GitHub repository request configuration",
     )
     access_token: str | None = Field(
@@ -102,11 +102,11 @@ class HAConfig(OHCBaseConfig):
 class AppSettings(BaseModel):
     """Application settings."""
 
-    ha: HAConfig | None = Field(
+    ha: HAConfig = Field(
         default=HAConfig(),
         description="Home Assistant configuration",
     )
-    gh: GithubConfig | None = Field(
+    gh: GithubConfig = Field(
         default=GithubConfig(),
         description="GitHub configuration",
     )
@@ -123,6 +123,10 @@ class Settings(OHCBaseService):
         """Initialize the settings manager."""
         self._file_path = Path(file_path)
         self._settings = AppSettings()
+
+    def get_service_name(self) -> OHCServiceName:
+        """Return the service name for this instance."""
+        return OHCServiceName.SETTINGS
 
     async def _start(self) -> None:
         """Initialize settings."""
@@ -242,7 +246,7 @@ class Settings(OHCBaseService):
         return self._settings.gh
 
     @property
-    def gh_token(self) -> str:
+    def gh_token(self) -> str | None:
         """Get the GitHub access token."""
         return self._settings.gh.access_token
 

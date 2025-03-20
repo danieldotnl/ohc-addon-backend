@@ -1,15 +1,13 @@
 """GitHub repository management functionality."""
 
 import logging
-from pathlib import Path
 
-import aiofiles
-
+from ohc_backend.services.settings import GitHubRepoConfig
 from ohc_backend.utils.logging import log_error
 
 from .base import GitHubBaseAPI
 from .errors import GitHubNotFoundError
-from .models import CommitFilesRequest, GithubRepositoryRequestConfig, Repository
+from .models import Repository
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +30,7 @@ class GitHubRepositoryManager:
         except GitHubNotFoundError:
             return None
 
-    async def create_repository(self, config: GithubRepositoryRequestConfig) -> Repository:
+    async def create_repository(self, config: GitHubRepoConfig) -> Repository:
         """Create a new repository."""
         data = {
             "name": config.name,
@@ -64,65 +62,23 @@ class GitHubRepositoryManager:
                 },
             )
 
-            logger.debug("Search result count: %s",
-                         response.get("total_count"))
+            logger.debug("Search result count: %s", response.get("total_count"))
 
             # Filter for exact match on name
             if response.get("items"):
                 for repo in response["items"]:
                     if repo.get("name") == name:
-                        logger.debug("Found repository: %s",
-                                     repo.get("full_name"))
+                        logger.debug("Found repository: %s", repo.get("full_name"))
                         return Repository(**repo)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001
             log_error(logger, "Error finding repository", e)
             return None
         else:
             return None
 
-    async def find_or_create_repository(self, config: GithubRepositoryRequestConfig) -> Repository:
+    async def find_or_create_repository(self, config: GitHubRepoConfig) -> Repository:
         """Get or create repository."""
         repo = await self.find_repository(config.name)
         if not repo:
             repo = await self.create_repository(config)
         return repo
-
-
-class RepositoryInitializer:
-    """Handles repository initialization with required files."""
-
-    def __init__(self, api: GitHubBaseAPI) -> None:
-        """Initialize the repository initializer."""
-        self.api = api
-
-    async def initialize_with_readme(self, repo_full_name: str) -> None:
-        """Replace the default README with our custom one."""
-        from .content import GitHubContentManager
-
-        # Create content manager for this repository
-        content_manager = GitHubContentManager(self.api, repo_full_name)
-
-        # Load README template
-        template_dir = Path(__file__).parent / "templates"
-        readme_path = template_dir / "README.md"
-
-        if readme_path.exists():
-            try:
-                async with aiofiles.open(readme_path) as f:
-                    readme_content = await f.read()
-
-                # Simply update the README - repository already has a commit and main branch
-                await content_manager.commit_files(
-                    CommitFilesRequest(
-                        files={"README.md": readme_content},
-                        message="Add README",
-                        branch="main",
-                        update_only=True  # This will update the existing file
-                    )
-                )
-                logger.info(
-                    "Successfully updated repository with OHC README")
-            except Exception as e:
-                log_error(
-                    logger, "Failed to update repository with README", e)
-                raise

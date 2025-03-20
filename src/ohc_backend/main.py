@@ -13,6 +13,7 @@ from ohc_backend.base_types import OHCServiceName
 from ohc_backend.errors import AppError, ErrorCode
 from ohc_backend.orchestrator import ServiceOrchestrator
 from ohc_backend.routers import scripts
+from ohc_backend.services.github.client import GitHubClient
 from ohc_backend.services.ha_service import HomeAssistantService
 from ohc_backend.services.settings import Settings
 from ohc_backend.utils.logging import configure_logging, log_error
@@ -36,8 +37,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:  # noqa: ARG001
 
         orchestrator = ServiceOrchestrator()
         home_assistant = HomeAssistantService()
+        github = GitHubClient()
         orchestrator.register_service(OHCServiceName.SETTINGS, settings, requires_config=False)
         orchestrator.register_service(OHCServiceName.HOMEASSISTANT, home_assistant)
+        orchestrator.register_service(OHCServiceName.GITHUB, github)
 
         await orchestrator.start()
 

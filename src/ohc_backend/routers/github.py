@@ -8,9 +8,9 @@ from pydantic import BaseModel
 
 from ohc_backend.dependencies import deps
 from ohc_backend.errors import AppError, ErrorCode
-from ohc_backend.services.github.auth import GitHubAuthAPI
+from ohc_backend.services.github.auth import GitHubAuthClient
 from ohc_backend.services.github.models import DeviceFlowInfo
-from ohc_backend.services.settings import GithubRepositoryRequestConfig, Settings
+from ohc_backend.services.settings import GitHubRepoConfig, Settings
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ async def setup_repository(
         raise AppError("Repository name is required", error_code=ErrorCode.VALIDATION_ERROR)
 
     # Update repository config
-    settings.gh_config.repo_request = GithubRepositoryRequestConfig(
+    settings.gh_config.repo_request = GitHubRepoConfig(
         name=request.name,
         private=True,
         description=settings.gh_config.repo_request.description,
@@ -49,7 +49,7 @@ async def start_github_auth(
     settings: Annotated[Settings, Depends(deps.get_settings)],
 ) -> DeviceFlowInfo:
     """Start the GitHub device flow authentication process."""
-    auth_api = GitHubAuthAPI()
+    auth_api = GitHubAuthClient()
     try:
         return await auth_api.start_device_flow(settings.gh_config.client_id, settings.gh_config.scope)
     finally:
@@ -62,7 +62,7 @@ async def poll_token_status(
     settings: Annotated[Settings, Depends(deps.get_settings)],
 ) -> dict:
     """Poll for GitHub token status."""
-    auth_api = GitHubAuthAPI()
+    auth_api = GitHubAuthClient()
     try:
         token_response = await auth_api.poll_for_token(settings.gh_config.client_id, device_code)
 
@@ -82,6 +82,6 @@ async def poll_token_status(
 @router.get("/config")
 async def get_repo_config(
     settings: Annotated[Settings, Depends(deps.get_settings)],
-) -> GithubRepositoryRequestConfig:
+) -> GitHubRepoConfig:
     """Get the current repository configuration."""
     return settings.gh_config.repo_request
