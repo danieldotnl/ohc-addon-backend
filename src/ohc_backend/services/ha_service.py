@@ -8,6 +8,7 @@ import aiohttp
 import yaml
 from fastapi import status
 
+from ohc_backend.base_types import OHCServiceName
 from ohc_backend.models.ha_entity import Automation, HAEntity, Script
 from ohc_backend.orchestrator import OHCBaseService
 from ohc_backend.services.settings import HAConfig, OHCBaseConfig
@@ -65,6 +66,10 @@ class HomeAssistantService(OHCBaseService):
         self.timeout: aiohttp.ClientTimeout | None = None
         self.session: aiohttp.ClientSession | None = None
         self.access_token: str | None = None
+
+    def get_service_name(self) -> OHCServiceName:
+        """Return the service name for this instance."""
+        return OHCServiceName.HOMEASSISTANT
 
     async def _start(self) -> None:
         """Start the service."""

@@ -44,7 +44,7 @@ class ServiceOrchestrator:
         OHCServiceName.SETTINGS,
         OHCServiceName.HOMEASSISTANT,
         OHCServiceName.GITHUB,
-        # OHCServiceName.SYNC_MANAGER,
+        OHCServiceName.SYNC_MANAGER,
     ]
 
     def __init__(self) -> None:

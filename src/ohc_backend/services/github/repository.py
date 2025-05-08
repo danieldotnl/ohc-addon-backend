@@ -2,10 +2,9 @@
 
 import logging
 
+from ohc_backend.services.github.rest import GitHubRestAPI
 from ohc_backend.services.settings import GitHubRepoConfig
-from ohc_backend.utils.logging import log_error
 
-from .base import GitHubBaseAPI
 from .errors import GitHubNotFoundError
 from .models import Repository
 
@@ -15,7 +14,7 @@ logger = logging.getLogger(__name__)
 class GitHubRepositoryManager:
     """Handles repository creation and management."""
 
-    def __init__(self, api: GitHubBaseAPI) -> None:
+    def __init__(self, api: GitHubRestAPI) -> None:
         """Initialize the repository manager."""
         self.api = api
 
@@ -70,8 +69,7 @@ class GitHubRepositoryManager:
                     if repo.get("name") == name:
                         logger.debug("Found repository: %s", repo.get("full_name"))
                         return Repository(**repo)
-        except Exception as e:  # noqa: BLE001
-            log_error(logger, "Error finding repository", e)
+        except GitHubNotFoundError:
             return None
         else:
             return None

@@ -10,16 +10,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from ohc_backend.base_types import OHCServiceName
+from ohc_backend.dependencies import deps
 from ohc_backend.errors import AppError, ErrorCode
 from ohc_backend.orchestrator import ServiceOrchestrator
 from ohc_backend.routers import scripts
 from ohc_backend.services.github.client import GitHubClient
 from ohc_backend.services.ha_service import HomeAssistantService
 from ohc_backend.services.settings import Settings
+from ohc_backend.services.sync_manager import SyncManager
 from ohc_backend.utils.logging import configure_logging, log_error
 from ohc_backend.utils.request_context import request_id_middleware
 
-from .dependencies import deps
 from .routers import automations
 
 configure_logging()
@@ -36,11 +37,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:  # noqa: ARG001
         settings = Settings(f"{data_folder}/config.json")
 
         orchestrator = ServiceOrchestrator()
+        deps.set_orchestrator(orchestrator)
+
         home_assistant = HomeAssistantService()
         github = GitHubClient()
+        sync_manager = SyncManager(github=github, ha_service=home_assistant)
         orchestrator.register_service(OHCServiceName.SETTINGS, settings, requires_config=False)
         orchestrator.register_service(OHCServiceName.HOMEASSISTANT, home_assistant)
         orchestrator.register_service(OHCServiceName.GITHUB, github)
+        orchestrator.register_service(OHCServiceName.SYNC_MANAGER, sync_manager)
 
         await orchestrator.start()
 
@@ -53,9 +58,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator:  # noqa: ARG001
             msg = "Application failed to start!"
             raise AppError(msg) from e
         raise
-    finally:
-        logger.info("Cleaning up application resources")
-        await deps.cleanup()
 
 
 app = FastAPI(lifespan=lifespan, debug=os.getenv("ENVIRONMENT") == "dev")
