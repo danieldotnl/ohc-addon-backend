@@ -57,4 +57,4 @@ select = ["ALL"]
 ignore = ["ERA001", "TRY003", "COM812", "EM102", "EM101"]
 
 [tool.ruff.lint.extend-per-file-ignores]
-"tests/**/*.py" = ["S101", "ARG", "FBT", "PLR2004", "S311"]
+"tests/**/*.py" = ["S101", "ARG", "FBT", "PLR2004", "S311", "SLF001"]

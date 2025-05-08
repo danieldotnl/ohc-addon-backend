@@ -70,15 +70,6 @@ class CommitFilesRequest(BaseModel):
     update_only: bool = True
 
 
-class GithubRepositoryRequestConfig(BaseModel):
-    """Configuration for repository creation."""
-
-    name: str
-    full_name: str
-    private: bool = True
-    description: str | None = None
-
-
 class GitReference(BaseModel):
     """Git reference representing a branch or tag pointer."""
 

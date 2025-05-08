@@ -1,36 +1,87 @@
 """Github API router."""
 
+import logging
+from typing import Annotated
 
-# router = APIRouter()
-# logger = logging.getLogger(__name__)
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 
-# setup_status = {}
+from ohc_backend.dependencies import deps
+from ohc_backend.errors import AppError, ErrorCode
+from ohc_backend.services.github.auth import GitHubAuthClient
+from ohc_backend.services.github.models import DeviceFlowInfo
+from ohc_backend.services.settings import GitHubRepoConfig, Settings
 
-
-# @router.post("/device-code")
-# async def start_github_auth(
-#     settings: Annotated[Settings, Depends(deps.get_settings)],
-#     github_auth_service: Annotated[GithubAuthService, Depends(deps.get_github_auth_service)],
-# ) -> DeviceFlowInfo:
-#     """Start the GitHub device flow authentication process."""
-#     return await github_auth_service.start_device_flow(settings.gh_auth_config.scope)
+router = APIRouter()
+logger = logging.getLogger(__name__)
 
 
-# @router.get("/poll-token/{device_code}")
-# async def check_auth_status(
-#     device_code: str,
-#     settings: Annotated[Settings, Depends(deps.get_settings)],
-#     github_auth_service: Annotated[GithubAuthService, Depends(deps.get_github_auth_service)],
-# ) -> dict:
-#     """Check the status of GitHub authentication."""
-#     token_response = await github_auth_service.poll_for_token(device_code)
-#     # TODO @<danieldotnl>: remove this logging  # noqa: FIX002, TD003
-#     logger.debug("Token response: %s", token_response)
+class RepoNameRequest(BaseModel):
+    """Repository name request."""
 
-#     if token_response.success:
-#         settings.gh_config.access_token = token_response.access_token
-#         await settings.save()
+    name: str
 
-#         sync_manager = deps.get_sync_manager()
-#         await sync_manager.start()
-#     return {"success": token_response.success}
+
+@router.post("/setup")
+async def setup_repository(
+    settings: Annotated[Settings, Depends(deps.get_settings)],
+    request: RepoNameRequest,
+) -> dict:
+    """Update repository configuration."""
+    if not request.name:
+        raise AppError("Repository name is required", error_code=ErrorCode.VALIDATION_ERROR)
+
+    # Update repository config
+    settings.gh_config.repo_request = GitHubRepoConfig(
+        name=request.name,
+        private=True,
+        description=settings.gh_config.repo_request.description,
+    )
+
+    # Save settings
+    await settings.save()
+
+    return {"success": True}
+
+
+@router.post("/device-code")
+async def start_github_auth(
+    settings: Annotated[Settings, Depends(deps.get_settings)],
+) -> DeviceFlowInfo:
+    """Start the GitHub device flow authentication process."""
+    auth_api = GitHubAuthClient()
+    try:
+        return await auth_api.start_device_flow(settings.gh_config.client_id, settings.gh_config.scope)
+    finally:
+        await auth_api.close()
+
+
+@router.get("/poll-token/{device_code}")
+async def poll_token_status(
+    device_code: str,
+    settings: Annotated[Settings, Depends(deps.get_settings)],
+) -> dict:
+    """Poll for GitHub token status."""
+    auth_api = GitHubAuthClient()
+    try:
+        token_response = await auth_api.poll_for_token(settings.gh_config.client_id, device_code)
+
+        if token_response.success and token_response.access_token:
+            # Update settings with token
+            settings.gh_config.access_token = token_response.access_token
+            await settings.save()
+
+            # TODO: trigger orchestrator to start github client and sync manager  # noqa: FIX002, TD002, TD003
+
+        # Return only the success status, not the token
+        return {"success": token_response.success}
+    finally:
+        await auth_api.close()
+
+
+@router.get("/config")
+async def get_repo_config(
+    settings: Annotated[Settings, Depends(deps.get_settings)],
+) -> GitHubRepoConfig:
+    """Get the current repository configuration."""
+    return settings.gh_config.repo_request

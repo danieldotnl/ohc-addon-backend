@@ -1,4 +1,7 @@
+"""Unit tests for SyncManager class."""
+
 import asyncio
+from typing import Never
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -13,13 +16,13 @@ from ohc_backend.services.sync_manager import SyncManager, SyncStatus
 
 
 @pytest.fixture
-def ha_service():
+def ha_service() -> HomeAssistantService:
     """Create a mock HomeAssistantService."""
     return AsyncMock(spec=HomeAssistantService)
 
 
 @pytest.fixture
-def github_client():
+def github_client() -> GitHubClient:
     """Create a mock GitHubClient with content manager."""
     client = AsyncMock(spec=GitHubClient)
     client.content = AsyncMock()
@@ -27,49 +30,51 @@ def github_client():
 
 
 @pytest.fixture
-def sync_config():
+def sync_config() -> SyncManagerConfig:
     """Create a SyncManagerConfig with test settings."""
     return SyncManagerConfig(
         interval=5,  # Short interval for tests
         state_file=".ohcstate/test_state.json",
-        ha_max_parallel_requests=5
+        ha_max_parallel_requests=5,
     )
 
 
 @pytest.fixture
-def sync_manager(ha_service, github_client, sync_config):
+def sync_manager(
+    ha_service: HomeAssistantService, github_client: GitHubClient, sync_config: SyncManagerConfig
+) -> SyncManager:
     """Create a SyncManager with mock dependencies."""
-    manager = SyncManager(ha_service, github_client, sync_config)
+    manager = SyncManager(ha_service, github_client)
+    manager.configure(sync_config)
     # Ensure the manager is using our mocked client
     assert manager.github is github_client
     return manager
 
 
 @pytest.fixture
-def example_automation():
+def example_automation() -> Automation:
     """Create an example automation entity."""
     return Automation(
         entity_id="automation.test_automation",
         automation_id="1234",
         friendly_name="Test Automation",
         state="on",
-        last_changed="2023-01-01T00:00:00.000000+00:00"
+        last_changed="2023-01-01T00:00:00.000000+00:00",
     )
 
 
 @pytest.fixture
-def example_script():
+def example_script() -> Script:
     """Create an example script entity."""
     return Script(
         entity_id="script.test_script",
         friendly_name="Test Script",
         state="off",
-        last_changed="2023-01-01T00:00:00.000000+00:00"
+        last_changed="2023-01-01T00:00:00.000000+00:00",
     )
 
 
-@pytest.mark.asyncio
-async def test_start_loads_state_from_github(sync_manager, github_client):
+async def test_start_loads_state_from_github(sync_manager: SyncManager, github_client: GitHubClient) -> None:
     """Test that starting the sync manager loads state from GitHub."""
     # Setup mock for GitHub content
     test_state = OHCState()
@@ -78,7 +83,7 @@ async def test_start_loads_state_from_github(sync_manager, github_client):
         automation_id="123",
         friendly_name="Test Auto",
         state="on",
-        last_changed="2023-01-01T00:00:00.000000+00:00"
+        last_changed="2023-01-01T00:00:00.000000+00:00",
     )
     test_state.add(test_automation)
     state_json = test_state.to_json()
@@ -89,42 +94,35 @@ async def test_start_loads_state_from_github(sync_manager, github_client):
     await sync_manager.start()
 
     # Verify GitHub was called to get state file
-    github_client.content.get_file_contents.assert_called_once_with(
-        sync_manager.sync_config.state_file
-    )
+    github_client.content.get_file_contents.assert_called_once_with(sync_manager.sync_config.state_file)
 
     # Verify state was loaded
     assert len(sync_manager.get_ohc_state().get_entities()) == 1
-    assert sync_manager.get_ohc_state().get_entity(
-        "automation.test_auto") is not None
+    assert sync_manager.get_ohc_state().get_entity("automation.test_auto") is not None
 
 
-@pytest.mark.asyncio
-async def test_start_handles_not_found_error(sync_manager, github_client):
+async def test_start_handles_not_found_error(sync_manager: SyncManager, github_client: GitHubClient) -> None:
     """Test that the sync manager handles state file not found on GitHub."""
     # Setup mock for GitHub content to raise not found error
     github_client.content.get_file_contents.side_effect = GitHubNotFoundError(
-        "file", sync_manager.sync_config.state_file)
+        "file", sync_manager.sync_config.state_file
+    )
 
     # Start the sync manager
     await sync_manager.start()
 
     # Verify GitHub was called to get state file
-    github_client.content.get_file_contents.assert_called_once_with(
-        sync_manager.sync_config.state_file
-    )
+    github_client.content.get_file_contents.assert_called_once_with(sync_manager.sync_config.state_file)
 
     # Verify empty state was created
     assert len(sync_manager.get_ohc_state().get_entities()) == 0
     assert sync_manager.status == SyncStatus.RUNNING
 
 
-@pytest.mark.asyncio
-async def test_start_handles_auth_error(sync_manager, github_client):
+async def test_start_handles_auth_error(sync_manager: SyncManager, github_client: GitHubClient) -> None:
     """Test that the sync manager handles GitHub auth errors."""
     # Setup mock for GitHub content to raise auth error
-    github_client.content.get_file_contents.side_effect = GitHubAuthError(
-        "Auth failed")
+    github_client.content.get_file_contents.side_effect = GitHubAuthError("Auth failed")
 
     # Start should raise RuntimeError when auth fails
     with pytest.raises(RuntimeError):
@@ -134,8 +132,7 @@ async def test_start_handles_auth_error(sync_manager, github_client):
     assert sync_manager.status == SyncStatus.ERROR
 
 
-@pytest.mark.asyncio
-async def test_stop_cancels_tasks(sync_manager, github_client):
+async def test_stop_cancels_tasks(sync_manager: SyncManager, github_client: GitHubClient) -> None:
     """Test that stopping the sync manager cancels all tasks."""
     # Configure the mock to return None to simulate file not found
     github_client.content.get_file_contents.return_value = None
@@ -155,17 +152,18 @@ async def test_stop_cancels_tasks(sync_manager, github_client):
         assert sync_manager.status == SyncStatus.STOPPED
 
 
-@pytest.mark.asyncio
-async def test_fetch_entity_contents_parallel(sync_manager, example_automation, example_script):
+async def test_fetch_entity_contents_parallel(
+    sync_manager: SyncManager, example_automation: Automation, example_script: Script
+) -> None:
     """Test fetching entity contents in parallel with correct concurrency."""
+
     # Setup _fetch_entity_content to return different content for different entities
-    async def mock_fetch_content(entity):
+    async def mock_fetch_content(entity: HAEntity) -> str:
         if entity.entity_id == example_automation.entity_id:
             return "automation: content"
         return "script: content"
 
-    sync_manager._fetch_entity_content = AsyncMock(
-        side_effect=mock_fetch_content)
+    sync_manager._fetch_entity_content = AsyncMock(side_effect=mock_fetch_content)
 
     # Test with multiple entities
     entities = [example_automation, example_script]
@@ -182,17 +180,18 @@ async def test_fetch_entity_contents_parallel(sync_manager, example_automation, 
     assert sync_manager._fetch_entity_content.call_count == 2
 
 
-@pytest.mark.asyncio
-async def test_fetch_entity_contents_handles_errors(sync_manager, example_automation, example_script):
+async def test_fetch_entity_contents_handles_errors(
+    sync_manager: SyncManager, example_automation: Automation, example_script: Script
+) -> None:
     """Test fetching entity contents handles errors properly."""
+
     # Setup _fetch_entity_content to raise an error for one entity
-    async def mock_fetch_content(entity):
+    async def mock_fetch_content(entity: HAEntity) -> str:
         if entity.entity_id == example_automation.entity_id:
             raise HomeAssistantError("Failed to fetch")
         return "script: content"
 
-    sync_manager._fetch_entity_content = AsyncMock(
-        side_effect=mock_fetch_content)
+    sync_manager._fetch_entity_content = AsyncMock(side_effect=mock_fetch_content)
 
     # Test with multiple entities should raise RuntimeError
     entities = [example_automation, example_script]
@@ -200,8 +199,9 @@ async def test_fetch_entity_contents_handles_errors(sync_manager, example_automa
         await sync_manager.fetch_entity_contents_parallel(entities)
 
 
-@pytest.mark.asyncio
-async def test_fetch_entity_content(sync_manager, ha_service, example_automation, example_script):
+async def test_fetch_entity_content(
+    sync_manager: SyncManager, ha_service: HomeAssistantService, example_automation: Automation, example_script: Script
+) -> None:
     """Test fetching content for different entity types."""
     # Setup mocks for ha_service
     ha_service.get_automation_content.return_value = "automation yaml"
@@ -210,18 +210,15 @@ async def test_fetch_entity_content(sync_manager, ha_service, example_automation
     # Test automation
     content = await sync_manager._fetch_entity_content(example_automation)
     assert content == "automation yaml"
-    ha_service.get_automation_content.assert_called_once_with(
-        example_automation.automation_id)
+    ha_service.get_automation_content.assert_called_once_with(example_automation.automation_id)
 
     # Test script
     content = await sync_manager._fetch_entity_content(example_script)
     assert content == "script yaml"
-    ha_service.get_script_content.assert_called_once_with(
-        example_script.entity_id)
+    ha_service.get_script_content.assert_called_once_with(example_script.entity_id)
 
 
-@pytest.mark.asyncio
-async def test_identify_potential_changes(sync_manager, example_automation):
+async def test_identify_potential_changes(sync_manager: SyncManager, example_automation: Automation) -> None:
     """Test identification of potential changes in entities."""
     # Create a state with an existing entity
     state_copy = OHCState()
@@ -230,7 +227,7 @@ async def test_identify_potential_changes(sync_manager, example_automation):
         automation_id="existing",
         friendly_name="Existing Automation",
         state="on",
-        last_changed="2023-01-01T00:00:00.000000+00:00"
+        last_changed="2023-01-01T00:00:00.000000+00:00",
     )
     state_copy.add(existing_automation)
 
@@ -240,7 +237,7 @@ async def test_identify_potential_changes(sync_manager, example_automation):
         automation_id="existing",
         friendly_name="Updated Name",  # Name changed
         state="on",
-        last_changed="2023-01-02T00:00:00.000000+00:00"  # Time changed
+        last_changed="2023-01-02T00:00:00.000000+00:00",  # Time changed
     )
 
     # Also add a new entity and an entity to be marked as deleted
@@ -249,7 +246,7 @@ async def test_identify_potential_changes(sync_manager, example_automation):
         automation_id="to_delete",
         friendly_name="To Delete",
         state="on",
-        last_changed="2023-01-01T00:00:00.000000+00:00"
+        last_changed="2023-01-01T00:00:00.000000+00:00",
     )
     state_copy.add(deleted_automation)
 
@@ -275,8 +272,9 @@ async def test_identify_potential_changes(sync_manager, example_automation):
     assert deleted[0].is_deleted  # Should be marked as deleted
 
 
-@pytest.mark.asyncio
-async def test_check_content_changes(sync_manager, github_client, example_automation):
+async def test_check_content_changes(
+    sync_manager: SyncManager, github_client: GitHubClient, example_automation: Automation
+) -> None:
     """Test checking which entities have actual content changes."""
     # Make sure the sync_manager uses our mocked client
     sync_manager.github = github_client
@@ -291,15 +289,12 @@ async def test_check_content_changes(sync_manager, github_client, example_automa
     github_client.content.get_file_contents.return_value = "old content"
 
     # Mock the get_changed_files method which is causing the exception
-    changed_files_result = (
-        {"automations/automation.test_automation.yaml": "new content"}, None, None)
-    github_client.content.get_changed_files = AsyncMock(
-        return_value=changed_files_result)
+    changed_files_result = ({"automations/automation.test_automation.yaml": "new content"}, None, None)
+    github_client.content.get_changed_files = AsyncMock(return_value=changed_files_result)
 
     # Create a parallel fetch result
     content_results = [(example_automation, "new content")]
-    sync_manager.fetch_entity_contents_parallel = AsyncMock(
-        return_value=content_results)
+    sync_manager.fetch_entity_contents_parallel = AsyncMock(return_value=content_results)
 
     # Test with a changed entity
     changed_entities = [example_automation]
@@ -320,8 +315,9 @@ async def test_check_content_changes(sync_manager, github_client, example_automa
     assert final_changed[0] == example_automation
 
 
-@pytest.mark.asyncio
-async def test_process_changes_integration(sync_manager, github_client, example_automation):
+async def test_process_changes_integration(
+    sync_manager: SyncManager, github_client: GitHubClient, example_automation: Automation
+) -> None:
     """Test the full process_changes flow integrating all sub-processes."""
     # Setup mock for identifying potential changes
     ha_entities = [example_automation]
@@ -335,8 +331,7 @@ async def test_process_changes_integration(sync_manager, github_client, example_
         # Setup content check mock
         with patch.object(sync_manager, "_check_content_changes") as mock_content:
             # Return files and final changed entities
-            test_files = {
-                "automations/automation.test_automation.yaml": "content"}
+            test_files = {"automations/automation.test_automation.yaml": "content"}
             mock_content.return_value = (test_files, [example_automation])
 
             # Run process_changes
@@ -351,17 +346,13 @@ async def test_process_changes_integration(sync_manager, github_client, example_
             assert len(deleted) == 0
 
 
-@pytest.mark.asyncio
-async def test_commit_changes_success(sync_manager, github_client):
+async def test_commit_changes_success(sync_manager: SyncManager, github_client: GitHubClient) -> None:
     """Test successfully committing changes to GitHub."""
     # Setup mock for commit_changed_files
     github_client.content.commit_changed_files.return_value = True
 
     # Test files
-    files = {
-        "automations/test.yaml": "content",
-        sync_manager.sync_config.state_file: "{}"
-    }
+    files = {"automations/test.yaml": "content", sync_manager.sync_config.state_file: "{}"}
 
     # Commit the changes
     result = await sync_manager._commit_changes(files, 1, 1, 0)
@@ -371,12 +362,10 @@ async def test_commit_changes_success(sync_manager, github_client):
     github_client.content.commit_changed_files.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_commit_changes_auth_error(sync_manager, github_client):
+async def test_commit_changes_auth_error(sync_manager: SyncManager, github_client: GitHubClient) -> None:
     """Test handling auth errors when committing changes."""
     # Setup mock to raise auth error
-    github_client.content.commit_changed_files.side_effect = GitHubAuthError(
-        "Auth failed")
+    github_client.content.commit_changed_files.side_effect = GitHubAuthError("Auth failed")
 
     # Test files
     files = {"automations/test.yaml": "content"}
@@ -389,8 +378,7 @@ async def test_commit_changes_auth_error(sync_manager, github_client):
     assert sync_manager.status == SyncStatus.ERROR
 
 
-@pytest.mark.asyncio
-async def test_commit_changes_api_error(sync_manager, github_client):
+async def test_commit_changes_api_error(sync_manager: SyncManager, github_client: GitHubClient) -> None:
     """Test handling API errors when committing changes."""
     # Set the initial status to RUNNING
     sync_manager.status = SyncStatus.RUNNING
@@ -399,8 +387,7 @@ async def test_commit_changes_api_error(sync_manager, github_client):
     sync_manager.github = github_client
 
     # Setup mock to raise API error
-    github_client.content.commit_changed_files.side_effect = GitHubAPIError(
-        "API Error", status_code=500)
+    github_client.content.commit_changed_files.side_effect = GitHubAPIError("API Error", status_code=500)
 
     # Test files
     files = {"automations/test.yaml": "content"}
@@ -414,8 +401,7 @@ async def test_commit_changes_api_error(sync_manager, github_client):
     assert sync_manager.status == SyncStatus.RUNNING
 
 
-@pytest.mark.asyncio
-async def test_run_integration(sync_manager):
+async def test_run_integration(sync_manager: SyncManager) -> None:
     """Test the full sync run integration."""
     # Setup mocks for all key methods in the run flow
     with patch.object(sync_manager, "_fetch_entities_and_prepare_state") as mock_fetch:
@@ -439,15 +425,13 @@ async def test_run_integration(sync_manager):
                 # Verify all methods were called with expected arguments
                 mock_fetch.assert_called_once()
                 mock_process.assert_called_once_with(ha_entities, state_copy)
-                mock_commit.assert_called_once_with(
-                    files, len(updated), len(inserted), len(deleted))
+                mock_commit.assert_called_once_with(files, len(updated), len(inserted), len(deleted))
 
                 # State should be updated on successful commit
                 assert sync_manager._ohc_state == state_copy
 
 
-@pytest.mark.asyncio
-async def test_run_no_changes(sync_manager):
+async def test_run_no_changes(sync_manager: SyncManager) -> None:
     """Test sync run when no changes are detected."""
     # Setup mocks for all key methods in the run flow
     with patch.object(sync_manager, "_fetch_entities_and_prepare_state") as mock_fetch:
@@ -474,8 +458,7 @@ async def test_run_no_changes(sync_manager):
                 assert sync_manager._ohc_state == state_copy
 
 
-@pytest.mark.asyncio
-async def test_run_fetch_error(sync_manager):
+async def test_run_fetch_error(sync_manager: SyncManager) -> None:
     """Test sync run handling errors during entity fetching."""
     # Setup mock to return None (indicating error)
     with patch.object(sync_manager, "_fetch_entities_and_prepare_state") as mock_fetch:
@@ -489,8 +472,7 @@ async def test_run_fetch_error(sync_manager):
             mock_process.assert_not_called()
 
 
-@pytest.mark.asyncio
-async def test_async_loop_handles_cancellation(sync_manager):
+async def test_async_loop_handles_cancellation(sync_manager: SyncManager) -> None:
     """Test that async loop handles task cancellation properly."""
     # Mock the run method
     sync_manager.run = AsyncMock()
@@ -499,10 +481,10 @@ async def test_async_loop_handles_cancellation(sync_manager):
     sync_manager.status = SyncStatus.RUNNING
 
     # Create a controlled way to exit the loop
-    async def mock_sleep(seconds):
+    async def mock_sleep(seconds: int) -> Never:
         # First call will raise CancelledError to simulate cancellation
         sync_manager.status = SyncStatus.STOPPED
-        raise asyncio.CancelledError()
+        raise asyncio.CancelledError
 
     # Patch the sleep function to cause cancellation
     with patch("asyncio.sleep", mock_sleep):
@@ -513,21 +495,20 @@ async def test_async_loop_handles_cancellation(sync_manager):
         sync_manager.run.assert_called_once()
 
 
-@pytest.mark.asyncio
-async def test_async_loop_handles_exceptions(sync_manager):
+async def test_async_loop_handles_exceptions(sync_manager: SyncManager) -> None:
     """Test that async loop handles exceptions during run()."""
     # Track run count
     run_count = 0
 
     # Override the run method to raise an exception but also exit the loop
-    async def mock_run():
+    async def mock_run() -> Never:
         nonlocal run_count
         run_count += 1
         # After first call, set status to exit the loop
         if run_count >= 1:
             sync_manager.status = SyncStatus.STOPPED
         # Always raise an exception
-        raise Exception("Test error")
+        raise Exception("Test error")  # noqa: TRY002
 
     # Replace the run method
     sync_manager.run = mock_run

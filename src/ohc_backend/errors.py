@@ -9,10 +9,10 @@ from fastapi import status
 class ErrorCode(StrEnum):
     """Application error codes."""
 
-    AUTHENTICATION_FAILED = "auth_failed"
     NOT_FOUND = "not_found"
     VALIDATION_ERROR = "validation_error"
     GITHUB_API_ERROR = "github_api_error"
+    GITHUB_AUTH_ERROR = "github_auth_error"
     HOME_ASSISTANT_ERROR = "ha_error"
     SYNC_ERROR = "sync_error"
     INTERNAL_ERROR = "internal_error"
@@ -40,14 +40,14 @@ class AppError(Exception):
         return {"error_code": self.error_code.value, "message": self.message, "details": self.details}
 
 
-class AuthenticationError(AppError):
+class GitHubAuthenticationError(AppError):
     """Authentication errors."""
 
-    def __init__(self, message: str, details: dict[str, Any] | None = None) -> None:
+    def __init__(self, details: dict[str, Any] | None = None) -> None:
         """Initialize the error."""
         super().__init__(
-            message,
+            "Github authentication failed. Request a new token.",
             status_code=status.HTTP_401_UNAUTHORIZED,
-            error_code=ErrorCode.AUTHENTICATION_FAILED,
+            error_code=ErrorCode.GITHUB_AUTH_ERROR,
             details=details,
         )

@@ -6,6 +6,7 @@ import logging
 from enum import Enum
 from typing import cast
 
+from ohc_backend.base_types import OHCBaseConfig, OHCBaseService, OHCServiceName
 from ohc_backend.models.ha_entity import Automation, HAEntity, HAEntityType
 from ohc_backend.services.github import GitHubClient
 from ohc_backend.services.github.errors import GitHubAPIError, GitHubAuthError, GitHubNotFoundError
@@ -25,19 +26,28 @@ class SyncStatus(Enum):
     ERROR = "error"
 
 
-class SyncManager:
+class SyncManager(OHCBaseService):
     """Sync manager for Home Assistant entities."""
 
-    def __init__(self, ha_service: HomeAssistantService, github: GitHubClient, sync_config: SyncManagerConfig) -> None:
+    def __init__(self, ha_service: HomeAssistantService, github: GitHubClient) -> None:
         """Initialize the sync manager."""
         self.ha_service = ha_service
         self.github = github
-        self.sync_config = sync_config
+        self.sync_config: SyncManagerConfig | None = None
 
         self._ohc_state: OHCState = OHCState()
         self.status = SyncStatus.STOPPED
         self._task: asyncio.Task | None = None
         self._sleep_task: asyncio.Task | None = None
+
+    def get_service_name(self) -> OHCServiceName:
+        """Return the service name for this instance."""
+        return OHCServiceName.SYNC_MANAGER
+
+    def configure(self, config: OHCBaseConfig) -> None:
+        """Configure the sync manager with settings."""
+        sync_config = cast(SyncManagerConfig, config)
+        self.sync_config = sync_config
 
     def get_ohc_state(self) -> OHCState:
         """Get the ohc state manager."""
@@ -47,32 +57,27 @@ class SyncManager:
             raise RuntimeError(msg)
         return self._ohc_state
 
-    async def start(self) -> None:
+    async def _start(self) -> None:
         """Start the sync manager in a background task."""
         if self.status != SyncStatus.STOPPED:
             logger.warning("Sync manager already running or in error state")
             return
 
-        logger.info("Starting sync manager with sync interval %d seconds",
-                    self.sync_config.interval)
+        logger.info("Starting sync manager with sync interval %d seconds", self.sync_config.interval)
         try:
             # First load state from GitHub if available
             try:
-                logger.info("Loading state from GitHub: %s",
-                            self.sync_config.state_file)
+                logger.info("Loading state from GitHub: %s", self.sync_config.state_file)
                 state_json = await self.github.content.get_file_contents(self.sync_config.state_file)
                 if state_json:
-                    logger.info(
-                        "Loading existing state from GitHub (length: %d)", len(state_json))
+                    logger.info("Loading existing state from GitHub (length: %d)", len(state_json))
                     self._ohc_state = OHCState.from_json(state_json)
-                    logger.info("State loaded with %d entities",
-                                len(self._ohc_state.get_entities()))
+                    logger.info("State loaded with %d entities", len(self._ohc_state.get_entities()))
                 else:
                     logger.warning("State file exists but is empty")
             except GitHubNotFoundError:
                 # This is expected the first time when a repo is created.
-                logger.info(
-                    "State file not found on GitHub, starting with empty state")
+                logger.info("State file not found on GitHub, starting with empty state")
                 # Already using empty state from initialization
 
             self.status = SyncStatus.RUNNING
@@ -84,7 +89,7 @@ class SyncManager:
             self.status = SyncStatus.ERROR
             raise RuntimeError(f"Failed to start sync manager: {e!s}") from e
 
-    async def stop(self) -> None:
+    async def _stop(self) -> None:
         """Stop the sync manager and cancel any ongoing sleep."""
         logger.info("Stopping sync manager")
         self.status = SyncStatus.STOPPED
@@ -95,104 +100,89 @@ class SyncManager:
 
     async def _async_loop(self) -> None:
         """Run the async loop in background."""
-        try:
-            while self.status == SyncStatus.RUNNING:
-                try:
-                    await self.run()
+        while self.status == SyncStatus.RUNNING:
+            try:
+                await self.run()
 
-                    # Sleep until next sync
-                    try:
-                        self._sleep_task = asyncio.create_task(
-                            asyncio.sleep(self.sync_config.interval))
-                        await self._sleep_task
-                    except asyncio.CancelledError:
-                        logger.info("Sleep interrupted, stopping sync loop")
-                        break
-                except Exception as e:
-                    log_error(logger, "Error during sync process", e)
-                    # Continue running despite errors in a single sync
-        except Exception as e:
-            log_error(logger, "Fatal error in sync loop", e)
-            self.status = SyncStatus.ERROR
+                # Sleep until next sync
+                try:
+                    self._sleep_task = asyncio.create_task(asyncio.sleep(self.sync_config.interval))
+                    await self._sleep_task
+                except asyncio.CancelledError:
+                    logger.info("Sleep interrupted, stopping sync loop")
+                    break
+            except Exception as e:  # noqa: BLE001
+                log_error(logger, "Error during sync process", e)
+                # Continue running despite errors in a single sync
 
     async def run(self) -> None:
         """Run the sync process with improved error handling."""
-        try:
-            logger.info("Start syncing changes...")
+        logger.info("Start syncing changes...")
 
-            # Phase 1: Fetch entities and identify changes
-            logger.debug("Phase 1: Fetching entities from Home Assistant")
-            result = await self._fetch_entities_and_prepare_state()
-            if result is None:
-                logger.warning("Failed to fetch entities, aborting sync")
-                return  # Error occurred during fetch
+        # Phase 1: Fetch entities and identify changes
+        logger.debug("Phase 1: Fetching entities from Home Assistant")
+        result = await self._fetch_entities_and_prepare_state()
+        if result is None:
+            logger.warning("Failed to fetch entities, aborting sync")
+            return  # Error occurred during fetch
 
-            ha_entities, state_copy = result
-            logger.debug("Phase 1 complete: Retrieved %d entities",
-                         len(ha_entities))
+        ha_entities, state_copy = result
+        logger.debug("Phase 1 complete: Retrieved %d entities", len(ha_entities))
 
-            # Phase 2: Process changes and prepare files
-            logger.debug("Phase 2: Processing changes")
-            result = await self._process_changes(ha_entities, state_copy)
-            if result is None:
-                logger.warning("Failed to process changes, aborting sync")
-                return  # Error occurred during processing
+        # Phase 2: Process changes and prepare files
+        logger.debug("Phase 2: Processing changes")
+        result = await self._process_changes(ha_entities, state_copy)
+        if result is None:
+            logger.warning("Failed to process changes, aborting sync")
+            return  # Error occurred during processing
 
-            files, updated, inserted, deleted = result
+        files, updated, inserted, deleted = result
 
-            # If nothing changed, we're done
-            if not (updated or inserted or deleted):
-                logger.info("No entities changed, skipping GitHub commit")
-                # Still update the internal state to capture last_changed changes
-                logger.debug("Updating internal state with %d entities (no content changes)",
-                             len(state_copy.get_entities()))
-                self._ohc_state = state_copy
-                return
-
-            logger.info(
-                "Processed entity changes: %d updated, %d inserted, %d deleted",
-                len(updated), len(inserted), len(deleted)
+        # If nothing changed, we're done
+        if not (updated or inserted or deleted):
+            logger.info("No entities changed, skipping GitHub commit")
+            # Still update the internal state to capture last_changed changes
+            logger.debug(
+                "Updating internal state with %d entities (no content changes)", len(state_copy.get_entities())
             )
+            self._ohc_state = state_copy
+            return
 
-            # Phase 3: Commit changes to GitHub
-            logger.debug("Phase 3: Committing changes to GitHub")
-            success = await self._commit_changes(
-                files,
-                len(updated),
-                len(inserted),
-                len(deleted)
-            )
+        logger.info(
+            "Processed entity changes: %d updated, %d inserted, %d deleted",
+            len(updated),
+            len(inserted),
+            len(deleted),
+        )
 
-            if success:
-                # Update the original state only on successful commit
-                logger.debug("Updating internal state with %d entities",
-                             len(state_copy.get_entities()))
-                self._ohc_state = state_copy
-                logger.info("Sync completed successfully")
+        # Phase 3: Commit changes to GitHub
+        logger.debug("Phase 3: Committing changes to GitHub")
+        success = await self._commit_changes(files, len(updated), len(inserted), len(deleted))
 
-        except Exception as e:
-            log_error(logger, "Unexpected error in sync process", e)
-            self.status = SyncStatus.ERROR
+        if success:
+            # Update the original state only on successful commit
+            logger.debug("Updating internal state with %d entities", len(state_copy.get_entities()))
+            self._ohc_state = state_copy
+            logger.info("Sync completed successfully")
 
     async def _fetch_entities_and_prepare_state(self) -> tuple[list[HAEntity], OHCState] | None:
         """Fetch entities from Home Assistant and prepare state copy."""
         try:
             ha_entities = await self.ha_service.get_all_automations_and_scripts()
-            logger.debug("Retrieved %d entities from Home Assistant",
-                         len(ha_entities))
+            logger.debug("Retrieved %d entities from Home Assistant", len(ha_entities))
 
             # Create a deep copy of ohc_state for modifications
             state_copy = OHCState()
             for entity in self._ohc_state.get_entities():
                 state_copy.upsert(copy.deepcopy(entity))
 
-            logger.debug("Created state copy with %d entities",
-                         len(state_copy.get_entities()))
-            return ha_entities, state_copy
+            logger.debug("Created state copy with %d entities", len(state_copy.get_entities()))
 
         except HomeAssistantError as e:
             log_error(logger, "Failed to fetch entities from Home Assistant", e)
             return None
+        else:
+            return ha_entities, state_copy
 
     async def fetch_entity_contents_parallel(self, entities: list[HAEntity]) -> list[tuple[HAEntity, str]]:
         """Fetch content for multiple entities in parallel with controlled concurrency."""
@@ -200,12 +190,10 @@ class SyncManager:
             logger.debug("No entities to fetch content for")
             return []
 
-        logger.debug(
-            "Fetching content for %d entities in parallel", len(entities))
+        logger.debug("Fetching content for %d entities in parallel", len(entities))
 
         # Create a semaphore to limit concurrency
-        semaphore = asyncio.Semaphore(
-            self.sync_config.ha_max_parallel_requests)
+        semaphore = asyncio.Semaphore(self.sync_config.ha_max_parallel_requests)
 
         async def fetch_with_limit(entity: HAEntity) -> tuple[HAEntity, str]:
             async with semaphore:
@@ -220,13 +208,11 @@ class SyncManager:
             # If any task fails, this will raise an exception
             results = await asyncio.gather(*tasks)
         except Exception as e:
-            log_error(
-                logger, "Failed to fetch content for some entities, aborting sync", e)
+            log_error(logger, "Failed to fetch content for some entities, aborting sync", e)
             # Re-raise to abort the current sync
             raise RuntimeError("Entity content fetch failed") from e
         else:
-            logger.debug(
-                "Successfully fetched content for %d entities", len(results))
+            logger.debug("Successfully fetched content for %d entities", len(results))
             return results
 
     async def _fetch_entity_content(self, entity: HAEntity) -> str | None:
@@ -237,14 +223,11 @@ class SyncManager:
                 return await self.ha_service.get_automation_content(automation.automation_id)
             return await self.ha_service.get_script_content(entity.entity_id)
         except Exception as e:
-            log_error(
-                logger, f"Failed to fetch content for {entity.entity_id}", e)
-            return None
+            log_error(logger, f"Failed to fetch content for {entity.entity_id}", e)
+            raise
 
     async def _process_changes(
-        self,
-        ha_entities: list[HAEntity],
-        state_copy: OHCState
+        self, ha_entities: list[HAEntity], state_copy: OHCState
     ) -> tuple[dict[str, str], list[HAEntity], list[HAEntity], list[HAEntity]] | None:
         """Process entity changes and prepare files for commit."""
         try:
@@ -256,8 +239,7 @@ class SyncManager:
             changed_entities, inserted_entities, deleted_entities = potential_changes
 
             # Step 2: Check content changes and filter timestamp-only updates
-            content_changes = await self._check_content_changes(
-                changed_entities, inserted_entities, state_copy)
+            content_changes = await self._check_content_changes(changed_entities, inserted_entities, state_copy)
             if content_changes is None:
                 return None
 
@@ -267,21 +249,18 @@ class SyncManager:
             if final_changed_entities or inserted_entities or deleted_entities:
                 # Include state file in commit
                 files[self.sync_config.state_file] = state_copy.to_json()
-                logger.debug(
-                    "Prepared %d files for commit including state file", len(files))
+                logger.debug("Prepared %d files for commit including state file", len(files))
             else:
                 logger.debug("No changes detected, no files to commit")
 
-            return files, final_changed_entities, inserted_entities, deleted_entities
-
         except Exception as e:
             log_error(logger, "Error processing entity changes", e)
-            return None
+            raise
+        else:
+            return files, final_changed_entities, inserted_entities, deleted_entities
 
-    async def _identify_potential_changes(
-        self,
-        ha_entities: list[HAEntity],
-        state_copy: OHCState
+    async def _identify_potential_changes(  # noqa: C901, PLR0912
+        self, ha_entities: list[HAEntity], state_copy: OHCState
     ) -> tuple[list[HAEntity], list[HAEntity], list[HAEntity]] | None:
         """Identify all potential changes (metadata and timestamp changes)."""
         try:
@@ -311,25 +290,30 @@ class SyncManager:
 
                         # Log all changes for debugging
                         if name_changed:
-                            logger.debug("Name changed for %s: '%s' -> '%s'",
-                                         entity.entity_id, current_entity.friendly_name, entity.friendly_name)
+                            logger.debug(
+                                "Name changed for %s: '%s' -> '%s'",
+                                entity.entity_id,
+                                current_entity.friendly_name,
+                                entity.friendly_name,
+                            )
                         if state_changed:
-                            logger.debug("State changed for %s: '%s' -> '%s'",
-                                         entity.entity_id, current_entity.state, entity.state)
+                            logger.debug(
+                                "State changed for %s: '%s' -> '%s'",
+                                entity.entity_id,
+                                current_entity.state,
+                                entity.state,
+                            )
                         if timestamp_changed:
-                            logger.debug(
-                                "Last changed datetime changed for %s", entity.entity_id)
+                            logger.debug("Last changed datetime changed for %s", entity.entity_id)
                         if deletion_changed or was_deleted:
-                            logger.debug(
-                                "Deletion status changed for %s", entity.entity_id)
+                            logger.debug("Deletion status changed for %s", entity.entity_id)
 
                         state_copy.update(entity)
                         changed_entities.append(entity)
 
             # Find deleted entities
             for entity in state_copy.get_entities():
-                if (entity.entity_id not in [e.entity_id for e in ha_entities] and
-                        not entity.is_deleted):
+                if entity.entity_id not in [e.entity_id for e in ha_entities] and not entity.is_deleted:
                     logger.debug("Entity deleted: %s", entity.entity_id)
                     entity.is_deleted = True
                     state_copy.update(entity)
@@ -337,21 +321,19 @@ class SyncManager:
 
             logger.debug(
                 "Potential changes: %d changed, %d new, %d deleted",
-                len(changed_entities), len(
-                    inserted_entities), len(deleted_entities)
+                len(changed_entities),
+                len(inserted_entities),
+                len(deleted_entities),
             )
-
-            return changed_entities, inserted_entities, deleted_entities
 
         except Exception as e:
             log_error(logger, "Error identifying potential changes", e)
-            return None
+            raise
+        else:
+            return changed_entities, inserted_entities, deleted_entities
 
-    async def _check_content_changes(
-        self,
-        changed_entities: list[HAEntity],
-        inserted_entities: list[HAEntity],
-        state_copy: OHCState
+    async def _check_content_changes(  # noqa: C901, PLR0912
+        self, changed_entities: list[HAEntity], inserted_entities: list[HAEntity], state_copy: OHCState
     ) -> tuple[dict[str, str], list[HAEntity]] | None:
         """Check content changes using SHA comparison."""
         try:
@@ -368,15 +350,13 @@ class SyncManager:
                 return {}, []
 
             # Fetch content for all potentially changed entities
-            logger.debug("Fetching content for %d entities",
-                         len(entities_to_check))
+            logger.debug("Fetching content for %d entities", len(entities_to_check))
             content_results = await self.fetch_entity_contents_parallel(entities_to_check)
 
             # Build file map and entity map
             for entity, content in content_results:
                 if not content:
-                    logger.warning(
-                        "Could not get content for %s, skipping", entity.entity_id)
+                    logger.warning("Could not get content for %s, skipping", entity.entity_id)
                     continue
 
                 # Get file path
@@ -397,11 +377,10 @@ class SyncManager:
             # Process results - entities with content changes
             final_changed_entities = []
 
-            for file_path, content in changed_files.items():
+            for file_path in changed_files:
                 entity = entity_map.get(file_path)
-                if entity:
-                    if entity in changed_entities:
-                        final_changed_entities.append(entity)
+                if entity and entity in changed_entities:
+                    final_changed_entities.append(entity)
                     # If entity in inserted_entities, it's already handled
 
             # IMPORTANT: Update state for all entities, even those without content changes
@@ -409,56 +388,46 @@ class SyncManager:
                 # Always update the state in state_copy
                 state_copy.update(entity)
 
-            logger.info(
-                "SHA-based content analysis: %d entities have actual changes",
-                len(final_changed_entities)
-            )
+            logger.info("SHA-based content analysis: %d entities have actual changes", len(final_changed_entities))
 
             # For entities with no content changes, check if metadata changed (not just timestamp)
             for file_path, entity in entity_map.items():
                 if file_path not in changed_files and entity in changed_entities:
                     # Content didn't change, but check if metadata did
-                    previous_entity = self._ohc_state.get_entity(
-                        entity.entity_id)
+                    previous_entity = self._ohc_state.get_entity(entity.entity_id)
 
                     if previous_entity and (
-                        entity.friendly_name != previous_entity.friendly_name or
-                        entity.state != previous_entity.state or
-                        entity.is_deleted != previous_entity.is_deleted
+                        entity.friendly_name != previous_entity.friendly_name
+                        or entity.state != previous_entity.state
+                        or entity.is_deleted != previous_entity.is_deleted
                     ):
                         # Real metadata changes - include in the commit
-                        logger.info("Metadata changed (not just timestamp) for %s - adding to commit",
-                                    entity.entity_id)
+                        logger.info("Metadata changed (not just timestamp) for %s - adding to commit", entity.entity_id)
                         changed_files[file_path] = files_map[file_path]
                         final_changed_entities.append(entity)
                     else:
                         # Only timestamp changed - don't include in commit
-                        logger.debug(
-                            "Only timestamp changed for %s - not adding to commit", entity.entity_id)
+                        logger.debug("Only timestamp changed for %s - not adding to commit", entity.entity_id)
 
-            return changed_files, final_changed_entities
-
-        except Exception as e:
+        except (RuntimeError, ValueError, KeyError) as e:
             log_error(logger, "Error checking content changes using SHA", e)
             return None
+        else:
+            return changed_files, final_changed_entities
 
     async def _commit_changes(
-        self,
-        files: dict[str, str],
-        updated_count: int,
-        inserted_count: int,
-        deleted_count: int
+        self, files: dict[str, str], updated_count: int, inserted_count: int, deleted_count: int
     ) -> bool:
         """Commit changes to GitHub."""
         try:
             commit_result = await self.github.content.commit_changed_files(
                 files,
-                f"Commit {updated_count} updated, {inserted_count} new, {deleted_count} deleted automations and/or scripts."
+                f"Commit {updated_count} updated, {inserted_count} new, "
+                f"{deleted_count} deleted automations and/or scripts.",
             )
 
             if commit_result:
-                logger.info(
-                    "Successfully committed entities to GitHub: %s", list(files.keys()))
+                logger.info("Successfully committed entities to GitHub: %s", list(files.keys()))
                 return True
 
         except GitHubAuthError as e:
@@ -469,11 +438,6 @@ class SyncManager:
             log_error(logger, "GitHub API error", e)
             # Don't change status for temporary API issues
             return False
-        except Exception as e:
-            log_error(logger, "Unexpected error committing to GitHub", e)
-            self.status = SyncStatus.ERROR
-            return False
         else:
-            logger.info(
-                "No changes to commit (GitHub reported files unchanged)")
+            logger.info("No changes to commit (GitHub reported files unchanged)")
             return True
